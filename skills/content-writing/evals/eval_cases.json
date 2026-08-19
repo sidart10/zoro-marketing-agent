@@ -1,0 +1,41 @@
+{
+  "_comment": "Advisory trigger evals for content-writing. Covers social posts, threads, long-form, and scripts, plus near-misses that need research, transcription, media generation, or private publishing instead.",
+  "schema_version": 2,
+  "trigger_keywords": [
+    "write a post",
+    "write this post",
+    "linkedin post",
+    "x post",
+    "twitter post",
+    "x thread",
+    "twitter thread",
+    "write a thread",
+    "short post",
+    "youtube script",
+    "video script",
+    "short-form script",
+    "newsletter",
+    "write an article",
+    "rewrite this article",
+    "rewrite this draft",
+    "hook options",
+    "content series"
+  ],
+  "cases": [
+    {"id": "tc_trigger_01", "query": "turn these notes into an 8-post X thread for product managers", "expected_trigger": true},
+    {"id": "tc_trigger_02", "query": "write a concise LinkedIn post explaining our AI workflow framework", "expected_trigger": true},
+    {"id": "tc_trigger_03", "query": "draft a six-minute informative YouTube script with A-roll and B-roll cues", "expected_trigger": true},
+    {"id": "tc_trigger_04", "query": "make this idea into a sharp short post without hashtags or hype", "expected_trigger": true},
+    {"id": "tc_trigger_05", "query": "write a long-form newsletter from this research and preserve the source links", "expected_trigger": true},
+    {"id": "tc_trigger_06", "query": "rewrite this article opening so the argument lands faster", "expected_trigger": true},
+    {"id": "tc_trigger_07", "query": "give me five hook options for this tech productivity video", "expected_trigger": true},
+    {"id": "tc_trigger_08", "query": "adapt this YouTube transcript into an original short-form video script", "expected_trigger": true},
+    {"id": "tc_trigger_09", "query": "plan a three-post content series about AI automation for operations leaders", "expected_trigger": true},
+    {"id": "tc_ignore_01", "query": "research what product managers are saying about Claude Code this month", "expected_trigger": false},
+    {"id": "tc_ignore_02", "query": "download and clean the transcript from this YouTube URL", "expected_trigger": false},
+    {"id": "tc_ignore_03", "query": "generate a YouTube thumbnail for this finished script", "expected_trigger": false},
+    {"id": "tc_ignore_04", "query": "turn this still image into a ten-second video", "expected_trigger": false},
+    {"id": "tc_ignore_05", "query": "summarize this article for my private notes", "expected_trigger": false},
+    {"id": "tc_ignore_06", "query": "publish this approved thread to my X account now", "expected_trigger": false}
+  ]
+}

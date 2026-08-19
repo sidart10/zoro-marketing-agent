@@ -1,0 +1,19 @@
+{
+  "name": "superCMO-skills",
+  "owner": {
+    "name": "Zoro",
+    "url": "https://github.com/sidart10/zoro-marketing-agent"
+  },
+  "metadata": {
+    "description": "Private, local-first marketing and creative-production agent",
+    "version": "0.1.7",
+    "repository": "https://github.com/sidart10/zoro-marketing-agent"
+  },
+  "plugins": [
+    {
+      "name": "supercmo",
+      "description": "Zoro's marketing skills and local creative-production tools.",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "supercmo",
+  "version": "0.1.7",
+  "description": "Private, local-first marketing and creative-production agent.",
+  "author": {
+    "name": "Zoro"
+  },
+  "repository": "https://github.com/sidart10/zoro-marketing-agent",
+  "skills": "./skills/",
+  "mcpServers": "./.codex-plugin/mcp.json"
+}

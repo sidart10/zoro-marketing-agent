@@ -1,0 +1,38 @@
+# Build and package output
+dist/
+
+# Private Zoro workspace — never visible to the public repository
+/workspace/
+
+# Zero-byte native-rename capability markers (one retained at a time)
+.content-agent-rename-probe-a.tmp
+.content-agent-rename-probe-b.tmp
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local agents and test staging dirs
+.supercmo/
+.claude/
+.skill-evals/
+
+# System specific files
+.DS_Store
+Thumbs.db
+
+# Environments
+.env
+.env.*
+
+# host-smoke generated media (not committed)
+_signoff-media/
+.gstack/
+
+# generated media output (default ./supercmo-media; tools write here)
+supercmo-media/

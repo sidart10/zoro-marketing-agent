@@ -1,0 +1,19 @@
+{
+  "skill_name": "content-writing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Turn this rough idea into an 8-post X thread for product managers: most teams use Claude Code as a faster IDE, but the bigger opportunity is treating it as an operating layer for research, specs, analysis, and repeatable workflows. Make it informative and practical, avoid hype, hashtags, and fake personal stories.",
+      "expected_output": "An original eight-post thread with a defensible thesis, one idea per post, practical examples, no invented evidence, and a useful close.",
+      "files": [],
+      "expectations": []
+    },
+    {
+      "id": 2,
+      "prompt": "Write a 6-minute informative YouTube script explaining when a small business should use a no-code AI automation versus Claude Code. Audience: smart non-engineers. Include a strong opening, clear examples, A-roll/B-roll cues, and a useful conclusion. Avoid hype and do not invent statistics.",
+      "expected_output": "A timed comparison script with an accessible decision model, concrete examples, purposeful visual cues, honest boundaries, and no fabricated claims.",
+      "files": [],
+      "expectations": []
+    }
+  ]
+}
