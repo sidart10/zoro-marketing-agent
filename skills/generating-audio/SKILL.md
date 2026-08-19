@@ -115,6 +115,9 @@ Share the audio file path(s). When the script was split, label each with the sec
   deliver the speech. Never generate first and disclose the gaps after.
 - **Script over the model's character limit** → split it at a natural break, or switch to a
   higher-ceiling model.
+- **`402 paid_plan_required` / `403 output_format_not_allowed`** → the account tier, not the request.
+  See `references/account-tier-limits.md` (what the ElevenLabs free tier blocks, and the
+  user-approved fallback for an accent it can't provide).
 - **`error: "no_voices_available"`** → relay the hint; it distinguishes an empty account from a key
   lacking permission to read voices, and the fixes differ.
 - **Part of a batch fails** → keep the takes that worked and resend only the failed lines.

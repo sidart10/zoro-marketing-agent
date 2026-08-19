@@ -126,6 +126,11 @@ image URL(s) and local file path(s) with the user.
 - **Generic failure** (an explicit error result, not a timeout) → read the error. If it names a
   parameter or a limit, correct that and resubmit. Otherwise resubmit once; if it fails again, give
   the user the error text rather than guessing.
+- **Only on-model references exist and the brief wants a flat-lay / product-only shot** → the model
+  will invent construction details (a flat-lay built this way was rejected as "not correct"). Say
+  so, ask for a real flat-lay or hanger photo, and until then generate on-model shots — those held
+  the garment. When the reference shows a real person, direct a *different* model explicitly and
+  describe the garment word-for-word in every request.
 - **`reference_images` rejected on count** → the error states the model's limit; drop to it.
 - **`error: "no_provider_configured"`** → relay the tool's `hint` (the user must set their key).
 

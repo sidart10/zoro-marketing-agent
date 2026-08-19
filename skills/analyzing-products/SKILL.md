@@ -43,7 +43,9 @@ job is the objective facts.
 - **The URL can't be extracted** (no result, or the extractor isn't set up) → ask for a product photo
   instead and switch to photo mode.
 - **Every image fails the filter** (faces, wrong variant, not a product shot) → keep the single
-  cleanest, or hand off the description alone and tell the caller no clean image survived.
+  cleanest, or hand off the description alone and tell the caller no clean image survived. Fashion
+  listings often have *only* on-model shots: still hand those over, labelled as colour/style/garment
+  references (not clean product refs) — they are the best source for on-model image and video work.
 - **A supplied photo is too unclear to read** (blurry, cropped, ambiguous) → say what you can't
   determine and ask for a clearer shot rather than guessing the mechanic.
 - **Neither a URL nor a photo** → ask for one; there is nothing to analyze.

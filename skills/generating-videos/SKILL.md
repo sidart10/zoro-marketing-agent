@@ -49,6 +49,10 @@ Then **call `list_video_models` for the chosen model** and read its accepted mod
 durations, resolutions, and media — each validates its own subset, and you need these before picking
 a mode or writing the prompt.
 
+**On-model fashion, or a brand's real photos exist** → read `references/people-and-fashion.md`
+first: Veo refuses real faces, Kling needs a start frame, and the recipe that passed review is a real
+photo as a Seedance *reference* with real motion — not an animated AI still.
+
 ### Step 2: Pick the mode
 
 From the modes that model accepts, pick what you feed the tool — each input below shapes the clip a
@@ -174,3 +178,6 @@ Work through these steps in order:
 - `references/prompt-kling.md` — director-script style, `@Element` references, per-speaker dialogue labels.
 - `references/prompt-grok.md` — tight front-loaded briefs, positive-only exclusions, one action per clip.
 - `references/prompt-wan.md` — front-loaded prose, multi-shot timestamps, driving-audio sync.
+
+**Field notes** — `references/people-and-fashion.md`: real-person sources per model, cutting to a
+voiceover, and stitching/aspect-ratio gotchas.
