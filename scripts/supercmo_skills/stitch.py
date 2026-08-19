@@ -49,6 +49,61 @@ def _res(path):
         return None
 
 
+def _layout(path):
+    """Ordered list of stream codec types, e.g. ['video','audio'] — or None if unprobeable.
+    The concat demuxer's stream-copy path pairs streams across files BY INDEX, so two clips with
+    the same content but a different stream order (some encoders write audio first) get their
+    audio spliced into the video track — and ffmpeg exits 0. We must not stream-copy those."""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", path],
+            capture_output=True, text=True, timeout=30)
+        streams = json.loads(out.stdout or "{}").get("streams") or []
+        return [st.get("codec_type") for st in streams] or None
+    except Exception:
+        return None
+
+
+def _duration(path):
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "json", path],
+            capture_output=True, text=True, timeout=30)
+        d = float(json.loads(out.stdout or "{}").get("format", {}).get("duration", 0))
+        return d or None
+    except Exception:
+        return None
+
+
+def _copy_safe(clips):
+    """True only when every clip has the same stream layout AND that layout is exactly one video
+    plus (optionally) one audio stream — the only case where the concat demuxer's by-index pairing
+    is guaranteed to line up."""
+    layouts = [_layout(c) for c in clips]
+    if any(l is None for l in layouts):
+        return False
+    if len({tuple(l) for l in layouts}) != 1:
+        return False
+    l = layouts[0]
+    return l.count("video") == 1 and l.count("audio") <= 1 and len(l) == l.count("video") + l.count("audio")
+
+
+def _duration_plausible(out, clips, tolerance=1.5):
+    """The stitched duration must be about the sum of the inputs; a by-index stream mix-up or a
+    truncated write shows up here even when ffmpeg exited 0. Unknown durations -> don't block."""
+    got = _duration(out)
+    parts = [_duration(c) for c in clips]
+    if got is None or any(p is None for p in parts):
+        return True
+    return abs(got - sum(parts)) <= tolerance + 0.05 * sum(parts)
+
+
 def _probe(path):
     """(duration_s, 'WxH', size_bytes) — best effort for the result report."""
     size = os.path.getsize(path) if os.path.isfile(path) else None
@@ -154,12 +209,19 @@ def video_stitch(clips, music=None, subtitles=None, output=None, output_dir=None
         sizes = [_res(p) for p in resolved]
         known = [s for s in sizes if s]
         cat = os.path.join(workdir, "cat.mp4")
-        if known and len(set(known)) > 1:
+        if known and (len(set(known)) > 1 or not _copy_safe(resolved)):
+            # mismatched sizes, or stream layouts that the concat demuxer would pair wrongly
             rc, err = _concat_scaled(ffmpeg, resolved, known[0], cat)
         else:
             rc, err = _concat_copy(ffmpeg, resolved, workdir, cat)
-            if (rc != 0 or not _ok(cat)) and known:              # fall back to re-encode on copy failure
+            # fall back to re-encode on copy failure — including a "successful" copy whose
+            # duration doesn't add up (a by-index stream mix-up exits 0 with a broken file)
+            if (rc != 0 or not _ok(cat) or not _duration_plausible(cat, resolved)) and known:
                 rc, err = _concat_scaled(ffmpeg, resolved, known[0], cat)
+        if rc == 0 and _ok(cat) and not _duration_plausible(cat, resolved):
+            return {"ok": False, "error": "ffmpeg produced a stitched file whose duration does not match the clips.",
+                    "hint": "one or more clips may be corrupt or have an unusual stream layout; re-download or re-encode them",
+                    "detail": err[-500:]}
         if rc != 0 or not _ok(cat):
             return {"ok": False, "error": "ffmpeg could not concatenate the clips.",
                     "hint": "confirm the clips are valid video files", "detail": err[-500:]}

@@ -3,7 +3,7 @@ name: generating-videos
 description: ALWAYS read this skill before generating or animating any video, or calling video_generate — text-to-video, image-to-video, a start→end transition, or a reference / motion / audio-guided clip. Turns a brief into a video clip — sets the model, picks the mode, and structures the video prompt. Use whenever the user asks to generate, create, make, or animate a video, produce b-roll, or bring an image to life.
 license: Apache-2.0
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
   category: creative
   summary: "Turns text briefs or still images into videos. Generates everything from cinematic b-roll to animated product shots, automatically structuring the complex prompts required by top video models."
 ---
@@ -108,10 +108,33 @@ Video is long-running: the tool waits for each clip, but a clip that runs long c
 retrieve the finished clip — **never re-run a pending clip** with `video_generate`; that starts a new,
 separately-billed job. If it's still pending, call `job_status` again with the same handle.
 
-### Step 7: Return
+### Step 7: Review the frames — mandatory, before anything is returned or stitched
 
-Once every clip has finished (rejoin any `pending` ones via `job_status` first), share the resulting
-video URL(s) and local file path(s) with the user.
+A clip is not finished when the file lands. Generated video fails *between* the frames a glance
+samples — a hand sprouts a finger for a third of a second, a scarf teleports, a pattern thins out and
+comes back, the background slides. Every clip goes through `references/frame-review.md` before it is
+stitched or shown:
+
+1. Run `scripts/frame_review.py` on the clip(s) — it extracts frames at 2 fps (4 fps for short or
+   previously-failed clips) into timestamped contact sheets, plus optional crops of hands / face /
+   product.
+2. Look at **every** tile — `image_analysis` on each sheet with the checklist, `video_analysis` on
+   the clip for motion — and compare adjacent tiles for anything that should be continuous but isn't.
+3. Grade against the checklist: anatomy, subject/product consistency, physics, scene & camera,
+   direction. Any **hard** fail rejects the clip: fix the prompt (name the clean state you want),
+   shorten it, or switch model, regenerate, and review again. Two rejections on the same shot → tell
+   the user what keeps failing and what you recommend instead of a third blind attempt.
+4. Report per clip with timestamps (`t=3.5s: …`). "Looks good" without timestamps and without
+   saying how many frames were reviewed is not a review.
+
+`video_analysis` on the whole clip is a useful second opinion for motion and pacing, but it doesn't
+replace looking at the frames — it summarises, and summaries hide exactly the flickers you're hunting.
+
+### Step 8: Return
+
+Once every clip has finished (rejoin any `pending` ones via `job_status` first) **and passed Step 7**,
+share the resulting video URL(s) and local file path(s) with the user, together with the review
+verdict (frames reviewed, any soft findings with timestamps).
 
 ## Longer or multi-clip videos
 
@@ -137,9 +160,18 @@ Work through these steps in order:
      and framing. This anchoring works on **any** model.
 4. **Keep the world continuous.** Repeat the palette, lighting, and setting in every shot's prompt,
    and open each shot on the state the previous one ended in, so a hard cut reads as continuous.
+   When the shots are meant to play as one continuous scene, **chain them**: extract the last frame
+   of shot N (`ffmpeg -sseof -0.2 -i shotN.mp4 -update 1 -frames:v 1 last.png`), review it, and pass
+   it as `start_frame_image` for shot N+1 — the cut becomes a match cut instead of a jump back to a
+   different pose. If that last frame crops out the subject's face, also pass the anchor still as a
+   `reference_images` entry (on a model that accepts both) so the face doesn't get reinvented when
+   the camera pulls back. Generate chained shots sequentially — each needs the previous result.
 5. **Generate the clips.** Send all the shots in one `video_generate` call — one request object per
    shot, the same aspect ratio and resolution across the set.
-6. **Stitch into one video.** Wait until every clip has finished — rejoin any that came back
+6. **Review every clip first (Step 7).** Frame-review each shot; regenerate any that hard-fail.
+   In a multi-shot set also check **across** shots: same face, same garment details, same light.
+   A stitched reel inherits every flaw of its worst clip — never stitch around a failed shot.
+7. **Stitch into one video.** Wait until every clip has finished — rejoin any that came back
    `pending` via `job_status` before stitching. Hand the finished clips, in order, to the
    `video_stitch` tool — it joins them with a hard cut between each and preserves each clip's audio.
    Don't assemble the clips by hand. Return the stitched video (and the individual clips if the user
@@ -181,3 +213,9 @@ Work through these steps in order:
 
 **Field notes** — `references/people-and-fashion.md`: real-person sources per model, cutting to a
 voiceover, and stitching/aspect-ratio gotchas.
+
+**Review** — read before returning any clip:
+
+- `references/frame-review.md` — the frame-level delivery gate: how to extract, what to look for
+  (anatomy, consistency, physics, scene/camera, direction), hard vs soft fails, how to report.
+- `scripts/frame_review.py` — dense frame extraction + timestamped contact sheets + ROI crops.
