@@ -1706,19 +1706,28 @@ class EvaluationMigrationTests(unittest.TestCase):
             (source / "labels.json").write_bytes(b"source")
             destination = self.destination(layout)
             lock = destination.parent / _lock_name(destination.name)
+            original_lock_descriptor: int | None = None
 
             def replace_lock_then_fail(*arguments: object) -> None:
+                nonlocal original_lock_descriptor
                 del arguments
+                original_lock_descriptor = os.open(lock, os.O_RDONLY)
                 lock.unlink()
                 lock.write_text("replacement owner\n", encoding="utf-8")
                 raise EvaluationMigrationError("copy failed")
 
-            with patch(
-                "content_agent.evaluation_migration._copy_payload_record",
-                side_effect=replace_lock_then_fail,
-            ):
-                with self.assertRaisesRegex(EvaluationMigrationError, "cleanup also failed"):
-                    copy_evaluation(source, destination, layout)
+            try:
+                with patch(
+                    "content_agent.evaluation_migration._copy_payload_record",
+                    side_effect=replace_lock_then_fail,
+                ):
+                    with self.assertRaisesRegex(
+                        EvaluationMigrationError, "cleanup also failed"
+                    ):
+                        copy_evaluation(source, destination, layout)
+            finally:
+                if original_lock_descriptor is not None:
+                    os.close(original_lock_descriptor)
 
             self.assertEqual(lock.read_text(encoding="utf-8"), "replacement owner\n")
 
