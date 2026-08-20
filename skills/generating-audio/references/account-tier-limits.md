@@ -21,3 +21,8 @@
 ## Mixing a reel (what sounded right)
 VO at ~0.4 s, music ~0.28, clip ambience ~0.12, 1 s fade-in / 1.7 s fade-out on music, then
 `loudnorm=I=-16:TP=-1.5:LRA=11`. Deliver the VO and music separately too.
+
+## Postscript — synthetic VO was ultimately rejected (2026-08-19)
+Both TTS takes (ElevenLabs stock and the Gemini fallback) were cut from the finals: "sounds too
+cheap" for a premium brand. Before generating any VO for a brand deliverable, offer the no-VO
+text+music cut and a real human recording first; treat TTS as a scratch track for timing the edit.
