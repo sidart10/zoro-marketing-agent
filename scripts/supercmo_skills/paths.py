@@ -122,6 +122,23 @@ def clear_active_project() -> dict:
     return {"ok": True, "slug": None, "output_dir": output_dir()}
 
 
+# ---------------------------------------------------------------- cost ledger
+# One JSON line per finished generation, appended by client._persist_media. Hidden file at the
+# INBOX ROOT (media/generated/), never inside a project bucket — one ledger per workspace, spanning
+# projects. Named by contracts/content-agent/workspace-organization-v1.md; the hygiene checker
+# treats it as expected.
+COST_LEDGER_NAME = ".cost-ledger.jsonl"
+
+
+def cost_ledger_path() -> Path | None:
+    """The workspace's cost ledger file, or None outside a content-agent workspace (public
+    fallbacks have no organization contract, so no ledger)."""
+    layout = content_agent_layout()
+    if layout is None:
+        return None
+    return layout.workspace / "media" / "generated" / COST_LEDGER_NAME
+
+
 def output_dir(explicit: str | None = None) -> str:
     """Where durable generated media lands: explicit arg > $SUPERCMO_OUTPUT_DIR > (active project's
     inbox media/generated/<slug>, else media/generated) > ./supercmo-media outside a workspace."""

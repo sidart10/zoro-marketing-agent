@@ -9,7 +9,7 @@ How the private `workspace/` stays organized, enforced by code. The directory *s
 
 | Folder | Contents | Rule |
 | --- | --- | --- |
-| `media/generated/` | **Inbox.** Raw generation output, auto-written. | Files land in a per-project bucket `media/generated/<slug>/`; files loose at the inbox root are a warning — file or archive them at session end. |
+| `media/generated/` | **Inbox.** Raw generation output, auto-written. | Files land in a per-project bucket `media/generated/<slug>/`; files loose at the inbox root are a warning — file or archive them at session end. The hidden `.cost-ledger.jsonl` at the inbox root is expected (see "Cost ledger"). |
 | `projects/<slug>/` | **Curated deliverables.** One folder per campaign. | Slug is kebab-case (`riwayat-rida-suit-set`). Must have `README.md` (what shipped + build recipe); should have `FINAL_*` and `product-facts.md`. Suggested subfolders: `shots/`, `stills/`, `ads/`, `chain/`. |
 | `archive/rejected/<slug>/` | Takes that failed frame review or were superseded. | Move, never delete. |
 | `cache/scratch/` | Session working files (downloads, cut workfiles, frame-review output). | Disposable; never a deliverable's only home. |
@@ -40,6 +40,25 @@ hex8       uniqueness token
 
 Curated copies in `projects/<slug>/` may be renamed freely (`FINAL_rida_reel.mp4`,
 `shots/shot1_walkin_kling.mp4`) — the grammar governs the inbox, not the curated tree.
+
+## Cost ledger (generation billing)
+
+Generation cost is part of the media contract:
+
+- **Result field** — a completed fal generation carries
+  `billing: {provider: "fal", billable_units: <float>, usd_estimate: <float|null>, price_basis:
+  <string|null>}`. `billable_units` is fal's metered quantity, captured from the
+  `x-fal-billable-units` response header (sync `fal.run` responses and `queue.fal.run` result
+  fetches alike, so the job-rejoin path is covered). `usd_estimate` comes only from
+  `supercmo_skills.catalog.FAL_UNIT_USD` — null when the model's per-unit price isn't recorded
+  there; a price is never guessed.
+- **Ledger file** — `media/generated/.cost-ledger.jsonl` (hidden, at the inbox root; written by
+  `client._persist_media`, one JSON line per generation): `{ts, capability, model, label,
+  project_slug, files, billable_units, usd_estimate, request_id?}`. `project_slug` is the bucket
+  the files landed in (else the active-project pointer). Appends are best-effort — a ledger fault
+  never fails a generation. The hygiene checker treats the file as expected, not loose media.
+- **Reporting** — `workspace_project cost` (optionally with `slug`) sums the ledger per project;
+  `client.cost_summary()` is the same programmatically.
 
 ## Lifecycle
 

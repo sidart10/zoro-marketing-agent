@@ -265,6 +265,17 @@ VIDEO_MODELS = {
                     aspects=VIDEO_ASPECTS, durations=list(range(2, 11)), resolutions=["720p", "1080p"]))),
 }
 
+# --- fal billing: USD per billable unit, keyed by OUR model alias. ------------------------------
+# fal reports the metered quantity of every completed generation on the `x-fal-billable-units`
+# response header (e.g. 293.625 for a 6s 1080p seedance-2.0 clip); the client surfaces it as
+# result["billing"]["billable_units"] and estimates USD ONLY when this table names the model's
+# per-unit price. An absent alias (or a None usd_per_unit) means "unknown" — the estimate stays
+# null. NEVER guess a value here: fill an entry only from fal's published pricing or an observed
+# invoice, and record the source in "basis" (it ships as billing["price_basis"]).
+# Entry shape: {"usd_per_unit": <float>, "basis": "<where the price came from>"}.
+FAL_UNIT_USD = {}
+
+
 # audio: standalone audio deliverables. `type` selects the mode.
 AUDIO_TYPES = ["speech"]
 

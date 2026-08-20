@@ -88,6 +88,18 @@ def is_available():
     return bool(os.environ.get(BYOK_ENV))
 
 
+def _billable_units(meta):
+    """fal's metered quantity for a completed generation, read from the `x-fal-billable-units`
+    response header (present on both sync fal.run responses and queue.fal.run result fetches).
+    Returns a float, or None when the header is absent/unparseable — billing is additive, never
+    an error."""
+    try:
+        v = (meta.get("headers") or {}).get("x-fal-billable-units")
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 # --------------------------------------------------------------------- image (sync)
 def _build_input(route, payload):
     p = dict(route.get("defaults", {}))
@@ -121,19 +133,27 @@ def _images(parsed):
 
 
 def image_generate(route, payload, key):
-    """Direct fal image call (sync). Returns {ok, model, images, seed} | {ok: False, ...}."""
+    """Direct fal image call (sync). Returns {ok, model, images, seed, billable_units?} |
+    {ok: False, ...}. `billable_units` is fal's metered quantity for this generation (from the
+    `x-fal-billable-units` response header), when reported."""
     refs = payload.get("reference_images") or []
     if len(refs) > route["max_refs"]:
         return {"ok": False, "error": f"{payload.get('model')} accepts at most {route['max_refs']} reference image(s); got {len(refs)}."}
     fal_input = _build_input(route, payload)
+    meta = {}
     parsed, status, err = supercmo_env._request(
-        "POST", f"{BASE}/{_endpoint(route, payload)}", body=fal_input, headers={"Authorization": f"Key {key}"})
+        "POST", f"{BASE}/{_endpoint(route, payload)}", body=fal_input,
+        headers={"Authorization": f"Key {key}"}, meta=meta)
     if parsed is None:
         return {"ok": False, "error": f"image request failed ({status})", "detail": (err or "")[:500]}
     images = _images(parsed)
     if not images:
         return {"ok": False, "error": "no images returned", "detail": json.dumps(parsed)[:500]}
-    return {"ok": True, "model": payload.get("model"), "images": images, "seed": parsed.get("seed")}
+    out = {"ok": True, "model": payload.get("model"), "images": images, "seed": parsed.get("seed")}
+    units = _billable_units(meta)
+    if units is not None:
+        out["billable_units"] = units
+    return out
 
 
 def image_submit(route, payload, key):
@@ -155,7 +175,10 @@ def image_status(status_url, response_url, key):
     images = _images(st["result"])
     if not images:
         return {"ok": False, "error": "no images returned", "detail": json.dumps(st["result"])[:500]}
-    return {"ok": True, "done": True, "images": images, "seed": st["result"].get("seed")}
+    out = {"ok": True, "done": True, "images": images, "seed": st["result"].get("seed")}
+    if st.get("billable_units") is not None:
+        out["billable_units"] = st["billable_units"]
+    return out
 
 
 def _mask(value):
@@ -199,7 +222,7 @@ def queue_submit(endpoint, fal_input, key):
 
 def queue_status(status_url, response_url, key):
     """One status check on a submitted job. While the job runs → {ok: True, done: False, state}.
-    On completion → {ok: True, done: True, result: <parsed>}. A network/timeout hiccup →
+    On completion → {ok: True, done: True, result: <parsed>, billable_units?}. A network/timeout hiccup →
     {ok: False, transient: True, ...} (the caller should keep polling, not give up). A real vendor
     failure state → {ok: False, terminal: True, ...}. Short timeout + single attempt: one unanswered
     poll returns fast instead of freezing the caller's wait budget."""
@@ -213,19 +236,25 @@ def queue_status(status_url, response_url, key):
     if state in _PENDING_STATES:
         return {"ok": True, "done": False, "state": state}
     if state == "COMPLETED":
+        meta = {}
         res, rcode, rerr = supercmo_env._request("GET", response_url, headers=headers,
-                                                 timeout=_STATUS_POLL_TIMEOUT, retries=1)
+                                                 timeout=_STATUS_POLL_TIMEOUT, retries=1, meta=meta)
         if res is None:                                      # result not fetched yet → retry
             return {"ok": False, "transient": True, "error": f"result fetch failed ({rcode})",
                     "detail": (rerr or "")[:500]}
-        return {"ok": True, "done": True, "result": res}
+        out = {"ok": True, "done": True, "result": res}
+        units = _billable_units(meta)   # the result fetch carries x-fal-billable-units
+        if units is not None:
+            out["billable_units"] = units
+        return out
     return {"ok": False, "terminal": True, "error": f"fal queue state: {state}",
             "detail": json.dumps(st)[:500]}
 
 
 def _queue_run(endpoint, fal_input, key):
     """Submit + blocking poll to COMPLETED (stdlib sleep, `_MAX_POLLS` bound). Retained for the sync
-    path and tests. Returns (parsed_result, None) | (None, error_dict)."""
+    path and tests. Returns (done_status, None) | (None, error_dict) — done_status is queue_status's
+    completed dict ({ok, done, result, billable_units?}), so billing survives the blocking path too."""
     sub = queue_submit(endpoint, fal_input, key)
     if not sub.get("ok"):
         return None, sub
@@ -235,7 +264,7 @@ def _queue_run(endpoint, fal_input, key):
         if not st.get("ok"):
             return None, st
         if st.get("done"):
-            return st["result"], None
+            return st, None
         time.sleep(_POLL_INTERVAL)
     supercmo_env.dbg(f"queue TIMED OUT after {time.time() - t0:.0f}s / {_MAX_POLLS} polls")
     return None, {"ok": False, "error": "fal queue timed out"}
@@ -290,16 +319,21 @@ def _video(parsed):
 
 
 def video_generate(route, payload, key):
-    """Direct fal video call (queued, blocking). Returns {ok, model, video:{url}, duration} | {ok: False, ...}."""
+    """Direct fal video call (queued, blocking). Returns {ok, model, video:{url}, duration,
+    billable_units?} | {ok: False, ...}."""
     payload = _upload_media(payload, key)   # local files → fal-hosted URLs (fal's recommended input path)
-    parsed, err = _queue_run(route["id"], _build_video_input(route, payload), key)
+    st, err = _queue_run(route["id"], _build_video_input(route, payload), key)
     if err:
         return err
+    parsed = st["result"]
     vid = _video(parsed)
     if not vid:
         return {"ok": False, "error": "no video returned", "detail": json.dumps(parsed)[:500]}
-    return {"ok": True, "model": payload.get("model"), "video": vid,
-            "duration": vid.get("duration") or payload.get("duration")}
+    out = {"ok": True, "model": payload.get("model"), "video": vid,
+           "duration": vid.get("duration") or payload.get("duration")}
+    if st.get("billable_units") is not None:
+        out["billable_units"] = st["billable_units"]
+    return out
 
 
 def video_submit(route, payload, key):
@@ -318,7 +352,10 @@ def video_status(status_url, response_url, key):
     vid = _video(st["result"])
     if not vid:
         return {"ok": False, "error": "no video returned", "detail": json.dumps(st["result"])[:500]}
-    return {"ok": True, "done": True, "video": vid, "duration": vid.get("duration")}
+    out = {"ok": True, "done": True, "video": vid, "duration": vid.get("duration")}
+    if st.get("billable_units") is not None:
+        out["billable_units"] = st["billable_units"]
+    return out
 
 
 def video_request_spec(route, payload):
@@ -353,10 +390,13 @@ if __name__ == "__main__":
 
     # queue submit/status split — stub _request so the transitions are exercised without network.
     _real_request = supercmo_env._request
-    _script = []  # queue of (parsed, status, err) tuples, consumed per _request call
+    _script = []  # queue of (parsed, status, err[, headers]) tuples, consumed per _request call
 
-    def _stub_request(method, url, body=None, headers=None, timeout=120, retries=None):
-        return _script.pop(0)
+    def _stub_request(method, url, body=None, headers=None, timeout=120, retries=None, meta=None):
+        item = _script.pop(0)
+        if meta is not None and len(item) > 3:
+            meta["headers"] = item[3]
+        return item[:3]
     supercmo_env._request = _stub_request
     try:
         # submit returns the two absolute urls
@@ -367,11 +407,19 @@ if __name__ == "__main__":
         _script[:] = [({"status": "IN_PROGRESS"}, 200, None)]
         st = queue_status(sub["status_url"], sub["response_url"], "k")
         assert st["ok"] and st["done"] is False and st["state"] == "IN_PROGRESS", st
-        # completed status → second _request fetches the result
+        # completed status → second _request fetches the result; its x-fal-billable-units header
+        # (fal's metered quantity) rides along on the done dict
         _script[:] = [({"status": "COMPLETED"}, 200, None),
-                      ({"video": {"url": "https://cdn/v.mp4", "duration": 8}}, 200, None)]
+                      ({"video": {"url": "https://cdn/v.mp4", "duration": 8}}, 200, None,
+                       {"x-fal-billable-units": "293.625"})]
         vst = video_status(sub["status_url"], sub["response_url"], "k")
         assert vst["ok"] and vst["done"] and vst["video"]["url"] == "https://cdn/v.mp4" and vst["duration"] == 8, vst
+        assert vst["billable_units"] == 293.625, vst
+        # no header (or garbage) → billing simply absent, never an error
+        _script[:] = [({"status": "COMPLETED"}, 200, None),
+                      ({"video": {"url": "https://cdn/v.mp4"}}, 200, None, {"x-fal-billable-units": "n/a"})]
+        vst2 = video_status(sub["status_url"], sub["response_url"], "k")
+        assert vst2["ok"] and "billable_units" not in vst2, vst2
         # image completed → images list parsed (image is queued too)
         _script[:] = [({"status": "COMPLETED"}, 200, None),
                       ({"images": [{"url": "https://cdn/i.png"}], "seed": 7}, 200, None)]

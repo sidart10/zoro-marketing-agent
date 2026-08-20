@@ -9,6 +9,7 @@ maps it to an ordered route list; `_select_route` picks the first available BYO 
 BYO fal, else the managed proxy. The agent is model-aware, provider-blind.
 """
 import base64
+import json
 import os
 import time
 import re
@@ -313,15 +314,129 @@ def media_stem(capability, model, token, label=None, index=None):
     return stem
 
 
-def _persist_media(result, output_dir, capability, label=None):
+def _attach_billing(result, model):
+    """Fold a fal provider's raw `billable_units` (captured from the `x-fal-billable-units`
+    response header) into the media contract's `billing` block:
+    {provider, billable_units, usd_estimate, price_basis}. The USD estimate comes ONLY from
+    catalog.FAL_UNIT_USD — null when the model's per-unit price is unknown, never invented."""
+    if not isinstance(result, dict) or result.get("billable_units") is None:
+        return result
+    units = result.pop("billable_units")
+    entry = catalog.FAL_UNIT_USD.get(model) or {}
+    per_unit = entry.get("usd_per_unit")
+    result["billing"] = {
+        "provider": "fal",
+        "billable_units": units,
+        "usd_estimate": round(units * per_unit, 4) if isinstance(per_unit, (int, float)) else None,
+        "price_basis": entry.get("basis"),
+    }
+    return result
+
+
+def _cost_ledger_append(result, out_dir, capability, model, label, files, request_id):
+    """One JSON line per finished generation to the workspace cost ledger
+    (paths.cost_ledger_path() — media/generated/.cost-ledger.jsonl). Attribution goes to the
+    project bucket the files actually landed in when out_dir is media/generated/<slug>/ (a handle
+    pins its destination at submit time, so this survives a mid-flight project switch); anywhere
+    else falls back to the active-project pointer. Best-effort by contract: one O_APPEND write per
+    (small) line, and ANY failure is swallowed — the ledger must never fail a good generation."""
+    try:
+        ledger = paths.cost_ledger_path()
+        if ledger is None:
+            return
+        inbox = os.path.realpath(os.path.dirname(str(ledger)))
+        landed = os.path.realpath(out_dir or "")
+        base = os.path.basename(landed)
+        if os.path.dirname(landed) == inbox and paths.PROJECT_SLUG_RE.match(base):
+            slug = base
+        else:
+            slug = paths.active_project()
+        billing = result.get("billing") or {}
+        entry = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "capability": capability,
+            "model": model,
+            "label": label,
+            "project_slug": slug,
+            "files": list(files),
+            "billable_units": billing.get("billable_units"),
+            "usd_estimate": billing.get("usd_estimate"),
+        }
+        if request_id:
+            entry["request_id"] = request_id
+        os.makedirs(inbox, exist_ok=True)
+        fd = os.open(str(ledger), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        try:
+            os.write(fd, (json.dumps(entry) + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
+    except Exception:
+        pass  # best-effort: never raise out of a successful generation
+
+
+def cost_summary(project=None):
+    """Sum the workspace cost ledger per project — the reporting side of the `billing` contract.
+    Returns {ok, ledger, active, projects: [{project, generations, billable_units, usd_estimate,
+    unpriced}], totals}; `project` filters to one slug. Unparseable lines are skipped, and
+    `unpriced` counts generations with no USD estimate so a low total is never mistaken for a
+    complete one."""
+    ledger = paths.cost_ledger_path()
+    if ledger is None:
+        return {"ok": False, "error": "no active content-agent workspace here."}
+    groups = {}
+    try:
+        with open(ledger, encoding="utf-8") as f:
+            for raw in f:
+                try:
+                    entry = json.loads(raw)
+                except ValueError:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                slug = entry.get("project_slug") or "(inbox)"
+                if project and slug != project:
+                    continue
+                g = groups.setdefault(slug, {"project": slug, "generations": 0,
+                                             "billable_units": 0.0, "usd_estimate": 0.0,
+                                             "unpriced": 0})
+                g["generations"] += 1
+                units = entry.get("billable_units")
+                if isinstance(units, (int, float)):
+                    g["billable_units"] += units
+                usd = entry.get("usd_estimate")
+                if isinstance(usd, (int, float)):
+                    g["usd_estimate"] += usd
+                else:
+                    g["unpriced"] += 1
+    except FileNotFoundError:
+        pass  # no generations logged yet — an empty summary, not an error
+    except OSError as e:
+        return {"ok": False, "error": f"cost ledger unreadable: {type(e).__name__}"}
+    rows = sorted(groups.values(), key=lambda g: (-g["usd_estimate"], -g["billable_units"], g["project"]))
+    for g in rows:
+        g["billable_units"] = round(g["billable_units"], 4)
+        g["usd_estimate"] = round(g["usd_estimate"], 4)
+    totals = {"generations": sum(g["generations"] for g in rows),
+              "billable_units": round(sum(g["billable_units"] for g in rows), 4),
+              "usd_estimate": round(sum(g["usd_estimate"] for g in rows), 4),
+              "unpriced": sum(g["unpriced"] for g in rows)}
+    return {"ok": True, "ledger": str(ledger), "active": paths.active_project(),
+            "projects": rows, "totals": totals,
+            "hint": "usd_estimate covers only models priced in catalog.FAL_UNIT_USD; "
+                    "`unpriced` generations have billable_units only (or no billing header at all)."}
+
+
+def _persist_media(result, output_dir, capability, label=None, request_id=None):
     """Download/decode generated media to a local dir and add `path` to each item. Best-effort:
-    a fetch failure leaves the item's url untouched (persistence never breaks a good generation)."""
+    a fetch failure leaves the item's url untouched (persistence never breaks a good generation).
+    Also appends the generation's cost-ledger line (see _cost_ledger_append)."""
     if not isinstance(result, dict) or not result.get("ok"):
         return result
     out_dir = paths.output_dir(output_dir)
     model = result.get("model") or capability
     token = uuid.uuid4().hex[:8]
     default_ext = _DEFAULT_EXT.get(capability, ".bin")
+    saved = []
 
     def _save(item, stem):
         try:
@@ -334,6 +449,7 @@ def _persist_media(result, output_dir, capability, label=None):
                 f.write(data)
             item["path"] = path
             item.pop("b64", None)  # persisted to disk — drop the (huge) inline base64 from the result
+            saved.append(stem)
         except Exception:
             return  # additive: never raise out of a successful generation
 
@@ -346,6 +462,7 @@ def _persist_media(result, output_dir, capability, label=None):
         if isinstance(item, dict):
             _save(item, media_stem(capability, model, token, label))
     result["output_dir"] = out_dir
+    _cost_ledger_append(result, out_dir, capability, model, label, saved, request_id)
     return result
 
 
@@ -402,7 +519,8 @@ def _poll_once(handle):
 
 def _finalize(handle, status):
     """Assemble + persist the final media envelope from a completed poll (adds model + any
-    duration_adjusted carried on the handle)."""
+    duration_adjusted carried on the handle, and the `billing` block when the vendor reported
+    billable units on the result fetch)."""
     cap = handle.get("capability")
     res = {"ok": True, "model": handle.get("model")}
     if cap == "video":
@@ -414,9 +532,13 @@ def _finalize(handle, status):
         res["images"] = status.get("images")
         if status.get("seed") is not None:
             res["seed"] = status.get("seed")
+    if status.get("billable_units") is not None:
+        res["billable_units"] = status["billable_units"]
+    _attach_billing(res, handle.get("model"))
     if handle.get("duration_adjusted"):
         res["duration_adjusted"] = handle["duration_adjusted"]
-    return _persist_media(res, handle.get("output_dir"), cap, handle.get("label"))
+    return _persist_media(res, handle.get("output_dir"), cap, handle.get("label"),
+                          request_id=handle.get("request_id"))
 
 
 def _wait_for_job(handle, deadline_s=None):
@@ -453,6 +575,7 @@ def _submit_or_run(capability, model, inp, kind, provider, route, output_dir, wa
     if kind == "direct" and not hasattr(provider, f"{capability}_submit"):   # synchronous vendor
         payload = {"model": model, **inp}
         res = getattr(provider, f"{capability}_generate")(route, payload, os.environ.get(provider.BYOK_ENV))
+        _attach_billing(res, model)
         if adjusted and isinstance(res, dict):
             res["duration_adjusted"] = adjusted
         return _persist_media(res, output_dir, capability, label)
@@ -1004,11 +1127,20 @@ if __name__ == "__main__":
     # ---- long-running jobs: submit → pending handle → rejoin (stub the network) ----
     _clear(); os.environ["FAL_KEY"] = "k"
     _real = supercmo_env._request
-    _script = []
+    _script = []  # queue of (parsed, status, err[, headers]) tuples, consumed per _request call
 
-    def _stub(method, url, body=None, headers=None, timeout=120, retries=None):
-        return _script.pop(0)
+    def _stub(method, url, body=None, headers=None, timeout=120, retries=None, meta=None):
+        item = _script.pop(0)
+        if meta is not None and len(item) > 3:
+            meta["headers"] = item[3]
+        return item[:3]
     supercmo_env._request = _stub
+    # pin the cost ledger into a scratch dir: the selftest must never append to a real workspace
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    _ledger_dir = _tempfile.TemporaryDirectory()
+    _real_ledger_path = paths.cost_ledger_path
+    paths.cost_ledger_path = lambda: _Path(_ledger_dir.name) / "generated" / paths.COST_LEDGER_NAME
     try:
         # wait=False → a well-formed pending handle, no polling
         _script[:] = [({"request_id": "r1", "status_url": "https://q/s", "response_url": "https://q/r"}, 200, None)]
@@ -1021,11 +1153,23 @@ if __name__ == "__main__":
         again = job_status(h, wait=False)
         assert again is h, again
 
-        # job_status(wait=False) once completed → finalized video (persist is best-effort; url present)
+        # job_status(wait=False) once completed → finalized video (persist is best-effort; url present).
+        # The result fetch's x-fal-billable-units header becomes the billing block (usd null: the
+        # model has no FAL_UNIT_USD entry — never invented) and one ledger line is appended.
         _script[:] = [({"status": "COMPLETED"}, 200, None),
-                      ({"video": {"url": "https://cdn/v.mp4", "duration": 6}}, 200, None)]
+                      ({"video": {"url": "https://cdn/v.mp4", "duration": 6}}, 200, None,
+                       {"x-fal-billable-units": "293.625"})]
         done = job_status(h, wait=False)
         assert done["ok"] and done["model"] == "seedance-2.0" and done["video"]["url"] == "https://cdn/v.mp4", done
+        assert done["billing"] == {"provider": "fal", "billable_units": 293.625,
+                                   "usd_estimate": None, "price_basis": None}, done
+        _lines = [json.loads(l) for l in open(paths.cost_ledger_path(), encoding="utf-8")]
+        assert len(_lines) == 1 and _lines[0]["billable_units"] == 293.625, _lines
+        assert _lines[0]["model"] == "seedance-2.0" and _lines[0]["capability"] == "video", _lines
+        assert _lines[0]["request_id"] == "r1", _lines
+        _cs = cost_summary()
+        assert _cs["ok"] and _cs["totals"] == {"generations": 1, "billable_units": 293.625,
+                                               "usd_estimate": 0.0, "unpriced": 1}, _cs
 
         # a garbage handle is rejected, not polled
         bad = job_status({"nope": 1}, wait=False)
@@ -1041,6 +1185,8 @@ if __name__ == "__main__":
         assert idone["ok"] and idone["images"][0]["url"] == "https://cdn/i.png" and idone["seed"] == 7, idone
     finally:
         supercmo_env._request = _real
+        paths.cost_ledger_path = _real_ledger_path
+        _ledger_dir.cleanup()
 
     # wait=True with no provider configured still errors cleanly (no network)
     _clear()

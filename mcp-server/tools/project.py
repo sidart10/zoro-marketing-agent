@@ -10,7 +10,7 @@ PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__
 sys.path.insert(0, os.path.join(PLUGIN_ROOT, "scripts"))
 
 import registry  # noqa: E402
-from supercmo_skills import paths  # noqa: E402
+from supercmo_skills import client, paths  # noqa: E402
 
 
 WORKSPACE_PROJECT = {
@@ -23,16 +23,19 @@ WORKSPACE_PROJECT = {
         "workspace/projects/<slug>/ is created for curated deliverables (FINAL_*, README.md, "
         "product-facts.md). `status` shows the active slug and resolved output dir; `list` shows "
         "all projects and whether each has a README and FINAL; `clear` reverts to the bare inbox. "
-        "Naming/lifecycle contract: contracts/content-agent/workspace-organization-v1.md."
+        "`cost` sums the generation cost ledger (media/generated/.cost-ledger.jsonl) per project — "
+        "vendor billable units + USD estimate where the unit price is known; pass `slug` to filter "
+        "to one project. Naming/lifecycle contract: contracts/content-agent/workspace-organization-v1.md."
     ),
     "inputSchema": {
         "type": "object",
         "additionalProperties": False,
         "required": ["action"],
         "properties": {
-            "action": {"type": "string", "enum": ["status", "set", "clear", "list"]},
+            "action": {"type": "string", "enum": ["status", "set", "clear", "list", "cost"]},
             "slug": {"type": "string",
-                     "description": "Project slug for `set` — kebab-case, e.g. 'riwayat-rida-suit-set'."},
+                     "description": "Project slug for `set` (kebab-case, e.g. 'riwayat-rida-suit-set') "
+                                    "or an optional filter for `cost`."},
         },
     },
 }
@@ -47,6 +50,8 @@ def workspace_project(args):
         return paths.set_active_project(args.get("slug"))
     if action == "clear":
         return paths.clear_active_project()
+    if action == "cost":
+        return client.cost_summary(args.get("slug"))
     if action == "list":
         projects_dir = layout.workspace / "projects"
         rows = []

@@ -117,10 +117,14 @@ def resolve_vendor_route(*byok_vars):
     return "none", hint
 
 
-def _request(method, url, body=None, headers=None, timeout=120, retries=None):
+def _request(method, url, body=None, headers=None, timeout=120, retries=None, meta=None):
     """JSON request with retries. Returns (parsed, status, error). `retries` overrides the module
     default — pass 1 for a status poll so a single unanswered request can't stack up 3×timeout of
-    dead wait inside one call (the caller paces its own retry loop)."""
+    dead wait inside one call (the caller paces its own retry loop).
+
+    `meta`: pass a dict to ALSO receive response metadata without changing the return shape —
+    on success `meta["headers"]` is filled with the response headers (keys lowercased). Vendors
+    carry billing on headers (fal's `x-fal-billable-units`), which the 3-tuple would otherwise drop."""
     data = json.dumps(body).encode("utf-8") if body is not None else None
     hdrs = {"Content-Type": "application/json", "User-Agent": _USER_AGENT, **(headers or {})}
     last_err, last_status = None, None
@@ -129,6 +133,8 @@ def _request(method, url, body=None, headers=None, timeout=120, retries=None):
         req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if meta is not None:
+                    meta["headers"] = {k.lower(): v for k, v in resp.headers.items()}
                 return json.loads(resp.read().decode("utf-8")), resp.status, None
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:500]
@@ -143,14 +149,15 @@ def _request(method, url, body=None, headers=None, timeout=120, retries=None):
 
 
 def _request_raw(method, url, body=None, headers=None, timeout=120, retries=None,
-                 raw_body=None, content_type=None):
+                 raw_body=None, content_type=None, meta=None):
     """Like _request but returns the raw response bytes (for binary responses, e.g. audio).
     Returns (data_bytes, content_type, status, error). `retries` overrides the module default —
     pass a small value (e.g. 1) for media downloads so a slow CDN can't consume minutes of the
     caller's timeout budget on top of an already-long generation.
 
     Pass `raw_body` (bytes) + `content_type` to send a RAW BINARY body verbatim (e.g. a media
-    upload PUT to vendor storage) instead of a JSON body — this keeps binary uploads on the seam."""
+    upload PUT to vendor storage) instead of a JSON body — this keeps binary uploads on the seam.
+    `meta`: as in _request — a dict to receive `meta["headers"]` (lowercased) on success."""
     if raw_body is not None:
         data = raw_body
         hdrs = {"User-Agent": _USER_AGENT, **(headers or {})}
@@ -165,6 +172,8 @@ def _request_raw(method, url, body=None, headers=None, timeout=120, retries=None
         req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if meta is not None:
+                    meta["headers"] = {k.lower(): v for k, v in resp.headers.items()}
                 return resp.read(), resp.headers.get("Content-Type", ""), resp.status, None
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:500]
@@ -456,6 +465,7 @@ def _selftest():
 
     class Response:
         status = 200
+        headers = {"X-Fal-Billable-Units": "293.625", "Content-Type": "application/json"}
 
         def __enter__(self):
             return self
@@ -475,11 +485,15 @@ def _selftest():
 
         urllib.request.urlopen = retry_once
         time.sleep = lambda _seconds: None
+        meta = {}
         parsed, status, err = _request(
-            "POST", "https://example.test/proxy", {"call_id": generated_call_id}, retries=2
+            "POST", "https://example.test/proxy", {"call_id": generated_call_id}, retries=2,
+            meta=meta,
         )
         assert parsed == {"ok": True} and status == 200 and err is None
         assert len(bodies) == 2 and bodies[0] == bodies[1]
+        # meta is additive: the 3-tuple is unchanged, and response headers land lowercased
+        assert meta["headers"]["x-fal-billable-units"] == "293.625", meta
 
         attempts = []
 

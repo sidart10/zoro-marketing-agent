@@ -61,7 +61,7 @@ def check(workspace: Path) -> tuple[list[str], list[str]]:
                     warnings.append(f"media/generated/{entry.name}/ is not a project-slug bucket "
                                     "(tool workdir? move it to cache/scratch or rename to a slug)")
                 continue
-            if entry.name == ".keep":
+            if entry.name in {".keep", paths.COST_LEDGER_NAME}:  # contract files, not loose media
                 continue
             if not MEDIA_NAME_RE.match(entry.name):
                 warnings.append(f"inbox file doesn't match the naming grammar: media/generated/{entry.name}")
