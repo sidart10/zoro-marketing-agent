@@ -10,7 +10,9 @@ from contextlib import chdir
 from pathlib import Path
 from unittest.mock import patch
 
-from supercmo_skills import paths
+import base64
+
+from supercmo_skills import paths, client
 from supercmo_skills.client import _sanitize_label, media_stem
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -98,6 +100,61 @@ class FilenameGrammarTests(unittest.TestCase):
             self.assertTrue(MEDIA_NAME_RE.match(stem + ".mp4"), stem)
 
 
+class PersistenceAndHandleTests(unittest.TestCase):
+    """Offline (b64) persistence: naming grammar on disk, project routing, and the submit-time
+    destination pin that keeps a mid-flight project switch from rerouting a finished job."""
+
+    def test_persist_media_writes_labeled_file_into_active_project_bucket(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_active_root(tmp)
+            with chdir(root), patch.dict(os.environ, ENVIRONMENT_PATHS, clear=False):
+                paths.set_active_project("riwayat-test-set")
+                result = {"ok": True, "model": "kling-3.0-pro",
+                          "video": {"b64": base64.b64encode(b"clip-bytes").decode(),
+                                    "content_type": "video/mp4"}}
+                out = client._persist_media(result, None, "video", label="shot1-walkin")
+                path = Path(out["video"]["path"])
+                self.assertTrue(path.is_file())
+                self.assertEqual(path.parent.name, "riwayat-test-set")
+                self.assertRegex(path.name, r"^shot1-walkin_video_kling-3\.0-pro_[0-9a-f]{8}\.mp4$")
+                self.assertNotIn("b64", out["video"])  # inline payload dropped once persisted
+
+    def test_handle_pins_destination_at_submit_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_active_root(tmp)
+            with chdir(root), patch.dict(os.environ, ENVIRONMENT_PATHS, clear=False):
+                paths.set_active_project("project-a")
+
+                class QueuedProvider:
+                    BYOK_ENV = "FAL_KEY"
+                    def video_submit(self, route, payload, key):
+                        return {"ok": True, "request_id": "r1",
+                                "status_url": "https://q/e/s", "response_url": "https://q/e"}
+
+                handle = client._submit_or_run(
+                    "video", "kling-3.0-pro", {"prompt": "x"}, "direct", QueuedProvider(),
+                    "route", None, wait=False, deadline_s=None, label="Shot 2!")
+                self.assertEqual(handle.get("status"), "pending")
+                self.assertEqual(handle.get("label"), "shot-2")
+                self.assertTrue(handle["output_dir"].endswith(os.path.join("media", "generated", "project-a")))
+
+                # the user switches projects while the job renders...
+                paths.set_active_project("project-b")
+                result = {"ok": True, "model": "kling-3.0-pro",
+                          "video": {"b64": base64.b64encode(b"clip").decode(),
+                                    "content_type": "video/mp4"}}
+                out = client._persist_media(result, handle["output_dir"], "video", handle.get("label"))
+                # ...and the finished clip still lands where it was aimed, label intact
+                self.assertEqual(Path(out["video"]["path"]).parent.name, "project-a")
+                self.assertTrue(Path(out["video"]["path"]).name.startswith("shot-2_video_"))
+
+    def test_media_stem_sanitizes_hostile_model_ids(self):
+        self.assertEqual(media_stem("video", "wan_2.7 (beta)!", "0a1b2c3d"),
+                         "video_wan-2.7-beta_0a1b2c3d")
+        from check_workspace_hygiene import MEDIA_NAME_RE  # type: ignore
+        self.assertTrue(MEDIA_NAME_RE.match(media_stem("video", "weird/model_v2", "0a1b2c3d") + ".mp4"))
+
+
 class HygieneCheckerTests(unittest.TestCase):
     def run_checker(self, workspace: Path, *flags):
         proc = subprocess.run(
@@ -133,6 +190,13 @@ class HygieneCheckerTests(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertTrue(any("random-stuff" in e for e in report["errors"]))
             (ws / "random-stuff").rmdir()
+
+            # curation debt: a tool workdir at the inbox root -> warning, not error
+            (ws / "media" / "generated" / "frame_review").mkdir()
+            rc, report = self.run_checker(ws)
+            self.assertEqual(rc, 0, report)
+            self.assertTrue(any("frame_review" in w for w in report["warnings"]))
+            (ws / "media" / "generated" / "frame_review").rmdir()
 
             # curation debt: loose inbox file -> warning (rc 0, rc 2 under --strict)
             (ws / "media" / "generated" / "video_kling-3.0-pro_0a1b2c3d.mp4").write_bytes(b"x")

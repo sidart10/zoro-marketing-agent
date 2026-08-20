@@ -24,6 +24,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from content_agent.workspace import WORKSPACE_DIRECTORIES  # noqa: E402
 from supercmo_skills import paths  # noqa: E402
 
+
+def read_active_pointer(workspace: Path) -> str | None:
+    """The active-project slug of THIS workspace (never cwd discovery — --workspace must judge the
+    target workspace against its own pointer, not the caller's)."""
+    try:
+        data = json.loads((workspace / "projects" / ".active-project.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    slug = data.get("slug") if isinstance(data, dict) else None
+    return slug if isinstance(slug, str) and SLUG_RE.match(slug) else None
+
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 # the filename grammar media_stem() writes: [<label>_]<capability>_<model>_<hex8>[_<i>].<ext>
 MEDIA_NAME_RE = re.compile(
@@ -47,7 +58,8 @@ def check(workspace: Path) -> tuple[list[str], list[str]]:
         for entry in sorted(inbox.iterdir()):
             if entry.is_dir():
                 if not SLUG_RE.match(entry.name):
-                    errors.append(f"media/generated/{entry.name}/ is not a project-slug bucket")
+                    warnings.append(f"media/generated/{entry.name}/ is not a project-slug bucket "
+                                    "(tool workdir? move it to cache/scratch or rename to a slug)")
                 continue
             if entry.name == ".keep":
                 continue
@@ -73,7 +85,7 @@ def check(workspace: Path) -> tuple[list[str], list[str]]:
             if not any(entry.glob("FINAL_*")):
                 warnings.append(f"projects/{entry.name}/ has no FINAL_* deliverable yet")
 
-    active = paths.active_project()
+    active = read_active_pointer(workspace)
     if active and not (projects / active).is_dir():
         errors.append(f"active project pointer names a missing folder: projects/{active}/")
 
@@ -108,7 +120,7 @@ def main() -> None:
     errors, warnings = check(workspace)
     if a.json:
         print(json.dumps({"ok": not errors, "errors": errors, "warnings": warnings,
-                          "active_project": paths.active_project()}, indent=1))
+                          "active_project": read_active_pointer(workspace)}, indent=1))
     else:
         for e in errors:
             print(f"❌ {e}")

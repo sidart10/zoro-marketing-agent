@@ -304,7 +304,8 @@ def _sanitize_label(label):
 def media_stem(capability, model, token, label=None, index=None):
     """The one place output filenames are built: [<label>_]<capability>_<model>_<token>[_<index>].
     Keep in sync with contracts/content-agent/workspace-organization-v1.md."""
-    stem = f"{capability}_{str(model).replace('/', '-')}_{token}"
+    model_slug = re.sub(r"[^A-Za-z0-9.-]+", "-", str(model)).strip("-") or "model"
+    stem = f"{capability}_{model_slug}_{token}"
     if label:
         stem = f"{label}_{stem}"
     if index is not None:
@@ -444,6 +445,9 @@ def _submit_or_run(capability, model, inp, kind, provider, route, output_dir, wa
     providers (direct non-queued, e.g. elevenlabs speech) and a synchronous proxy return
     the finished media directly — only queued jobs produce a handle."""
     label = _sanitize_label(label)
+    # Resolve the destination ONCE, now: the active-project pointer may change while a queued job
+    # renders, and a handle rejoined later must still land where the caller aimed it.
+    output_dir = paths.output_dir(output_dir)
     if kind == "none":
         return {"ok": False, "error": "no_provider_configured", "hint": _setup_hint(capability, model)}
     if kind == "direct" and not hasattr(provider, f"{capability}_submit"):   # synchronous vendor

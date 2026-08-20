@@ -93,9 +93,19 @@ def set_active_project(slug: str) -> dict:
     project = layout.workspace / "projects" / slug
     project.mkdir(parents=True, exist_ok=True)
     pointer = _pointer_path(layout)
-    tmp = pointer.with_name(pointer.name + ".tmp")
-    tmp.write_text(json.dumps({"schema_version": 1, "slug": slug}) + "\n", encoding="utf-8")
-    os.replace(tmp, pointer)
+    # unique temp per writer + atomic replace: concurrent set_active_project calls must never
+    # collide on a shared temp name or leave a torn pointer (last writer wins cleanly)
+    fd, tmp_name = tempfile.mkstemp(dir=pointer.parent, prefix=f".{pointer.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"schema_version": 1, "slug": slug}) + "\n")
+        os.replace(tmp_name, pointer)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     return {"ok": True, "slug": slug, "project_dir": str(project), "output_dir": output_dir()}
 
 
