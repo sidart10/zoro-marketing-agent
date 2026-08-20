@@ -11,6 +11,7 @@ BYO fal, else the managed proxy. The agent is model-aware, provider-blind.
 import base64
 import os
 import time
+import re
 import uuid
 
 import supercmo_env
@@ -288,13 +289,36 @@ def _media_bytes(item):
     return None, None
 
 
-def _persist_media(result, output_dir, capability):
+_LABEL_MAX = 48
+
+
+def _sanitize_label(label):
+    """Normalize a caller-supplied filename label to the naming contract: lowercase kebab-case,
+    [a-z0-9-], <=48 chars. Anything unusable -> None (the label is additive, never an error)."""
+    if not isinstance(label, str):
+        return None
+    cleaned = re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9-]+", "-", label.strip().lower())).strip("-")
+    return cleaned[:_LABEL_MAX].rstrip("-") or None
+
+
+def media_stem(capability, model, token, label=None, index=None):
+    """The one place output filenames are built: [<label>_]<capability>_<model>_<token>[_<index>].
+    Keep in sync with contracts/content-agent/workspace-organization-v1.md."""
+    stem = f"{capability}_{str(model).replace('/', '-')}_{token}"
+    if label:
+        stem = f"{label}_{stem}"
+    if index is not None:
+        stem = f"{stem}_{index}"
+    return stem
+
+
+def _persist_media(result, output_dir, capability, label=None):
     """Download/decode generated media to a local dir and add `path` to each item. Best-effort:
     a fetch failure leaves the item's url untouched (persistence never breaks a good generation)."""
     if not isinstance(result, dict) or not result.get("ok"):
         return result
     out_dir = paths.output_dir(output_dir)
-    model = str(result.get("model") or capability).replace("/", "-")
+    model = result.get("model") or capability
     token = uuid.uuid4().hex[:8]
     default_ext = _DEFAULT_EXT.get(capability, ".bin")
 
@@ -315,11 +339,11 @@ def _persist_media(result, output_dir, capability):
     if isinstance(result.get("images"), list):
         for i, img in enumerate(result["images"]):
             if isinstance(img, dict):
-                _save(img, f"{capability}_{model}_{token}_{i}")
+                _save(img, media_stem(capability, model, token, label, i))
     for key in ("video", "audio"):
         item = result.get(key)
         if isinstance(item, dict):
-            _save(item, f"{capability}_{model}_{token}")
+            _save(item, media_stem(capability, model, token, label))
     result["output_dir"] = out_dir
     return result
 
@@ -345,9 +369,11 @@ def _submit(capability, model, inp, kind, provider, route, call_id=None):
     return {"ok": False, "error": "no_provider_configured", "hint": _setup_hint(capability, model)}
 
 
-def _make_handle(capability, model, kind, sub, output_dir, adjusted=None):
+def _make_handle(capability, model, kind, sub, output_dir, adjusted=None, label=None):
     """Build the stateless pending handle from a successful submit."""
     h = {"status": "pending", "capability": capability, "model": model, "output_dir": output_dir}
+    if label:
+        h["label"] = label
     if kind == "proxy":
         h["provider"], h["job_id"] = "proxy", sub.get("job_id")
     else:                                    # queued direct vendor (fal)
@@ -389,7 +415,7 @@ def _finalize(handle, status):
             res["seed"] = status.get("seed")
     if handle.get("duration_adjusted"):
         res["duration_adjusted"] = handle["duration_adjusted"]
-    return _persist_media(res, handle.get("output_dir"), cap)
+    return _persist_media(res, handle.get("output_dir"), cap, handle.get("label"))
 
 
 def _wait_for_job(handle, deadline_s=None):
@@ -413,10 +439,11 @@ def _wait_for_job(handle, deadline_s=None):
 
 
 def _submit_or_run(capability, model, inp, kind, provider, route, output_dir, wait, deadline_s,
-                   adjusted=None, call_id=None):
+                   adjusted=None, call_id=None, label=None):
     """Submit a generation and either wait to completion or hand back a pending handle. Synchronous
     providers (direct non-queued, e.g. elevenlabs speech) and a synchronous proxy return
     the finished media directly — only queued jobs produce a handle."""
+    label = _sanitize_label(label)
     if kind == "none":
         return {"ok": False, "error": "no_provider_configured", "hint": _setup_hint(capability, model)}
     if kind == "direct" and not hasattr(provider, f"{capability}_submit"):   # synchronous vendor
@@ -424,15 +451,15 @@ def _submit_or_run(capability, model, inp, kind, provider, route, output_dir, wa
         res = getattr(provider, f"{capability}_generate")(route, payload, os.environ.get(provider.BYOK_ENV))
         if adjusted and isinstance(res, dict):
             res["duration_adjusted"] = adjusted
-        return _persist_media(res, output_dir, capability)
+        return _persist_media(res, output_dir, capability, label)
     sub = _submit(capability, model, inp, kind, provider, route, call_id=call_id)
     if not sub.get("ok"):
         return sub
     if kind == "proxy" and not sub.get("job_id"):     # proxy answered synchronously
         if adjusted:
             sub["duration_adjusted"] = adjusted
-        return _persist_media(sub, output_dir, capability)
-    handle = _make_handle(capability, model, kind, sub, output_dir, adjusted)
+        return _persist_media(sub, output_dir, capability, label)
+    handle = _make_handle(capability, model, kind, sub, output_dir, adjusted, label)
     return handle if not wait else _wait_for_job(handle, deadline_s)
 
 
@@ -470,7 +497,7 @@ def job_ok(result):
 # -------------------------------------------------------------------------------- image
 def image_generate(prompt, model=None, aspect_ratio=None, resolution=None,
                    reference_images=None, dry_run=False, output_dir=None, wait=True, deadline_s=None,
-                   call_id=None):
+                   call_id=None, label=None):
     """One image (text-to-image, or an edit when reference_images are supplied). The tool batches
     these — one call per request object. Images are submitted on the queue and polled: a fast image
     returns {ok, model, images} on the first poll, a slow one (heavy model / 4k / large batch) comes
@@ -509,7 +536,7 @@ def image_generate(prompt, model=None, aspect_ratio=None, resolution=None,
                          "image_request_spec", "image_generate")
     return _submit_or_run(
         "image", model, inp, kind, provider, route, output_dir, wait, deadline_s,
-        call_id=call_id,
+        call_id=call_id, label=label,
     )
 
 
@@ -542,7 +569,8 @@ def _resolve_video(base_route, populated):
 def video_generate(prompt, model=None, aspect_ratio=None, duration=None, resolution=None,
                    start_frame_image=None, end_frame_image=None, reference_images=None,
                    reference_videos=None, reference_audios=None, generate_audio=None,
-                   dry_run=False, output_dir=None, wait=True, deadline_s=None, call_id=None):
+                   dry_run=False, output_dir=None, wait=True, deadline_s=None, call_id=None,
+                   label=None):
     """Text / image / reference-to-video. Video generation is queued and long-running: the clip is
     submitted, then polled. With wait=True (default) this returns the finished {ok, model, video:{url},
     duration, ...} when it completes within one wait window, or a pending job handle ({status:
@@ -631,7 +659,7 @@ def video_generate(prompt, model=None, aspect_ratio=None, duration=None, resolut
             res["duration_adjusted"] = adjusted
         return res
     return _submit_or_run("video", model, inp, kind, provider, resolved, output_dir,
-                          wait, deadline_s, adjusted, call_id=call_id)
+                          wait, deadline_s, adjusted, call_id=call_id, label=label)
 
 
 # -------------------------------------------------------------------------------- audio
@@ -664,7 +692,7 @@ def list_voices(search=None, gender=None, accent=None, age=None, use_case=None, 
 
 def audio_generate(text=None, type="speech", model=None, voice=None, speed=None, stability=None,
                    similarity_boost=None, style=None, format=None, dry_run=False, output_dir=None,
-                   wait=True, deadline_s=None, call_id=None):
+                   wait=True, deadline_s=None, call_id=None, label=None):
     """Generate one standalone audio clip. Returns {ok, model, audio:{url|b64, path}} | {ok: False,
     error, ...}. `type` selects the mode; an unsupported value errors with the supported set."""
     if type not in catalog.AUDIO_TYPES:
@@ -719,7 +747,7 @@ def audio_generate(text=None, type="speech", model=None, voice=None, speed=None,
     else:
         res = _submit_or_run(
             "audio", model, inp, kind, provider, route, output_dir, wait, deadline_s,
-            call_id=call_id,
+            call_id=call_id, label=label,
         )
     if adjusted and isinstance(res, dict) and res.get("ok"):
         res["adjusted"] = adjusted

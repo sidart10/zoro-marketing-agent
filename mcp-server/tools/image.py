@@ -37,7 +37,8 @@ def image_generate(args):
             return {"ok": False, "error": "each request must be an object with a prompt."}
         return supercmo_skills.image_generate(
             prompt=r.get("prompt"), model=r.get("model"), aspect_ratio=r.get("aspect_ratio"),
-            resolution=r.get("resolution"), reference_images=r.get("reference_images"), dry_run=dry_run)
+            resolution=r.get("resolution"), reference_images=r.get("reference_images"), dry_run=dry_run,
+            label=r.get("label"))
 
     if dry_run or len(reqs) == 1:
         results = [_one(r) for r in reqs]

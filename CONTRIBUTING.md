@@ -49,6 +49,7 @@ python3 scripts/quick_validate.py        # skills + agents + plugin manifests li
 python3 scripts/listing_gate.py          # scripts compile + spend/social --dry-run (blocking)
 python3 scripts/check_shared_client.py    # no raw vendor HTTP — the brokering seam (blocking)
 python3 tests/evals/run_eval.py           # trigger evals (advisory)
+python3 scripts/check_workspace_hygiene.py # workspace organization contract (see contracts/content-agent/)
 ```
 
 CI runs the same on every push/PR (`.github/workflows/validate.yml`). Secret scanning

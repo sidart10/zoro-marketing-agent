@@ -41,6 +41,14 @@ IMAGE_GENERATE_PROPERTIES = {
                     "type": "string",
                     "description": "The image description. Be specific about subject, style, composition, and lighting.",
                 },
+                "label": {
+                    "type": "string",
+                    "description": "Optional short kebab-case name for the output file (e.g. "
+                    "'shot1-walkin', 'endcard'). Becomes the filename prefix "
+                    "<label>_<capability>_<model>_<id>; lowercase letters, digits and hyphens "
+                    "only (anything else is normalized away). Name every request in a "
+                    "multi-shot batch.",
+                },
                 "model": {
                     "type": "string",
                     "default": catalog.DEFAULT_MODEL,
@@ -135,6 +143,14 @@ VIDEO_GENERATE_PROPERTIES = {
                     "type": "string",
                     "description": "The video description. Be specific about subject, motion, camera "
                     "movement, pacing, and mood.",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Optional short kebab-case name for the output file (e.g. "
+                    "'shot1-walkin', 'endcard'). Becomes the filename prefix "
+                    "<label>_<capability>_<model>_<id>; lowercase letters, digits and hyphens "
+                    "only (anything else is normalized away). Name every request in a "
+                    "multi-shot batch.",
                 },
                 "model": {
                     "type": "string",
@@ -242,6 +258,14 @@ AUDIO_GENERATE_PROPERTIES = {
                     "is read out, so leave out anything that is a note to the reader rather than part "
                     "of the line. Write numbers, dates, and acronyms the way they should sound, and "
                     "use punctuation to place the pauses.",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Optional short kebab-case name for the output file (e.g. "
+                    "'shot1-walkin', 'endcard'). Becomes the filename prefix "
+                    "<label>_<capability>_<model>_<id>; lowercase letters, digits and hyphens "
+                    "only (anything else is normalized away). Name every request in a "
+                    "multi-shot batch.",
                 },
                 "type": {
                     "type": "string",

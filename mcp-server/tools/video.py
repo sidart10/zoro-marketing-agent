@@ -43,7 +43,7 @@ def video_generate(args):
             reference_audios=r.get("reference_audios"),
             duration=(int(r["duration"]) if r.get("duration") is not None else None),
             resolution=r.get("resolution"), aspect_ratio=r.get("aspect_ratio"),
-            generate_audio=r.get("generate_audio"), dry_run=dry_run)
+            generate_audio=r.get("generate_audio"), dry_run=dry_run, label=r.get("label"))
 
     # Each request submits then waits on its own thread, so a batch's clips are generated
     # concurrently — wall time ≈ the slowest clip, not their sum. A clip slower than one wait window
