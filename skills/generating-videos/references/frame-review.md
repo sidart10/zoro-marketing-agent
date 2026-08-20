@@ -85,6 +85,27 @@ Mark each item **pass / soft / hard**. A **hard** fail means the clip is rejecte
 - **Clean** → say so, and say what you checked (frames reviewed, fps, what you looked for). "I
   checked it" without that is not a review.
 
+## Model-specific failure patterns (observed, keep current)
+
+Add to this list when a review turns up a repeatable pattern; it steers the *fix*, not the verdict.
+
+- **Kling 3.0: camera move + face in frame → face redraw.** On push-ins and pull-backs Kling
+  re-renders the face at the new scale — features drift, and accessories can appear from nowhere (a
+  bindi materialised mid-push-in twice, with a face reference supplied). Fix: keep the camera
+  **locked** for any shot where the face must hold, or hand the shot to Seedance; save Kling's
+  camera moves for shots where the face is small, turned away, or out of frame (it excels at
+  walking/tracking shots and macro fabric work).
+- **Seedance 2.0: contact and gait.** Feet can glide over the ground on walks, and close-up motifs
+  may rearrange during hand contact. Fix: keep ground contact out of the tightest framing, name the
+  clean state ("her feet land on the stone with each step"), and prefer Kling for macro
+  fabric-touch shots.
+- **Veo 3.1: unprompted flourishes on long clips.** 8 s clips invite an undirected twirl, wave, or
+  drape change mid-clip. Fix: shorter clips (4-6 s), one action per clip, and state what stays
+  still.
+- **Any model: an undirected accessory is a coin flip.** A dupatta, bag, or scarf not pinned by the
+  prompt gets re-invented (hand swaps, re-grips, new drapes). Pin every accessory's position and
+  hand explicitly in every shot's prompt.
+
 ## Reporting
 
 For each clip, one line of verdict plus the timestamped findings, e.g.

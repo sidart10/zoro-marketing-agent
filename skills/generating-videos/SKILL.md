@@ -3,7 +3,7 @@ name: generating-videos
 description: ALWAYS read this skill before generating or animating any video, or calling video_generate — text-to-video, image-to-video, a start→end transition, or a reference / motion / audio-guided clip. Turns a brief into a video clip — sets the model, picks the mode, and structures the video prompt. Use whenever the user asks to generate, create, make, or animate a video, produce b-roll, or bring an image to life.
 license: Apache-2.0
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
   category: creative
   summary: "Turns text briefs or still images into videos. Generates everything from cinematic b-roll to animated product shots, automatically structuring the complex prompts required by top video models."
 ---
@@ -166,6 +166,9 @@ Work through these steps in order:
    different pose. If that last frame crops out the subject's face, also pass the anchor still as a
    `reference_images` entry (on a model that accepts both) so the face doesn't get reinvented when
    the camera pulls back. Generate chained shots sequentially — each needs the previous result.
+   Match the model to the shot: a camera move (push-in / pull-back) with a face in frame is where
+   faces get redrawn — lock the camera for those beats or use a model that holds identity, and see
+   the model-specific failure patterns in `references/frame-review.md` before assigning shots.
 5. **Generate the clips.** Send all the shots in one `video_generate` call — one request object per
    shot, the same aspect ratio and resolution across the set.
 6. **Review every clip first (Step 7).** Frame-review each shot; regenerate any that hard-fail.
