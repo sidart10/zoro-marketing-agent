@@ -189,10 +189,27 @@ def review_clip(clip: str, out_root: str, a: argparse.Namespace) -> dict:
     return manifest
 
 
+def default_out_root(clip: str) -> str:
+    """Review output is scratch, not deliverable — keep it out of the media inbox. When the clip
+    lives inside a content-agent workspace (any ancestor holding workspace.yaml), default to that
+    workspace's cache/scratch/frame_review/; otherwise fall back to <clip dir>/frame_review."""
+    d = os.path.dirname(os.path.abspath(clip))
+    probe_dir = d
+    while True:
+        if os.path.isfile(os.path.join(probe_dir, "workspace.yaml")):
+            return os.path.join(probe_dir, "cache", "scratch", "frame_review")
+        parent = os.path.dirname(probe_dir)
+        if parent == probe_dir:
+            return os.path.join(d, "frame_review")
+        probe_dir = parent
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("clips", nargs="+", help="video file(s) to review")
-    p.add_argument("--out", default=None, help="output root (default: <clip dir>/frame_review)")
+    p.add_argument("--out", default=None,
+                   help="output root (default: the workspace's cache/scratch/frame_review when the "
+                        "clip lives inside a content-agent workspace, else <clip dir>/frame_review)")
     p.add_argument("--fps", type=float, default=2.0, help="frames sampled per second (default 2)")
     p.add_argument("--cols", type=int, default=4)
     p.add_argument("--rows", type=int, default=4)
@@ -213,7 +230,7 @@ def main() -> None:
 
     results = []
     for clip in a.clips:
-        out_root = a.out or os.path.join(os.path.dirname(os.path.abspath(clip)), "frame_review")
+        out_root = a.out or default_out_root(clip)
         m = review_clip(clip, out_root, a)
         results.append(m)
         print(f"{os.path.basename(clip)}: {m['duration']:.2f}s @ {m['width']}x{m['height']} -> "

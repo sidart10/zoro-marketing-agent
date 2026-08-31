@@ -140,7 +140,8 @@ class FalBillableUnitsTests(unittest.TestCase):
 class AttachBillingTests(unittest.TestCase):
     def test_billing_block_shape_and_null_usd_when_unpriced(self):
         res = {"ok": True, "billable_units": 245.025}
-        client._attach_billing(res, "seedance-2.0")
+        with patch.dict(catalog.FAL_UNIT_USD, {}, clear=True):
+            client._attach_billing(res, "seedance-2.0")
         self.assertNotIn("billable_units", res)
         self.assertEqual(res["billing"], {"provider": "fal", "billable_units": 245.025,
                                           "usd_estimate": None, "price_basis": None})
@@ -252,15 +253,22 @@ class CostSummaryTests(unittest.TestCase):
                             "billable_units": None, "usd_estimate": None, "files": []}),
                 "not json — skipped",
             ]) + "\n", encoding="utf-8")
-            with chdir(root), patch.dict(os.environ, ENVIRONMENT_PATHS, clear=False):
+            with chdir(root), patch.dict(os.environ, ENVIRONMENT_PATHS, clear=False), \
+                    patch.dict(catalog.FAL_UNIT_USD,
+                               {"seedance-2.0": {"usd_per_unit": 0.01, "basis": "test-fixture"}},
+                               clear=True):
                 summary = client.cost_summary()
                 self.assertTrue(summary["ok"])
                 by_project = {row["project"]: row for row in summary["projects"]}
                 self.assertEqual(by_project["a"]["generations"], 2)
                 self.assertEqual(by_project["a"]["billable_units"], 538.65)
-                self.assertEqual(by_project["a"]["usd_estimate"], 2.94)
-                self.assertEqual(by_project["a"]["unpriced"], 1)
+                # first line keeps its recorded 2.94; the null-usd line is REPRICED from the
+                # current table (245.025 x 0.01) instead of staying unpriced forever
+                self.assertEqual(by_project["a"]["usd_estimate"], 5.3902)
+                self.assertEqual(by_project["a"]["unpriced"], 0)
+                # a model with no table entry (and no units) still counts as unpriced
                 self.assertEqual(by_project["(inbox)"]["generations"], 1)
+                self.assertEqual(by_project["(inbox)"]["unpriced"], 1)
                 self.assertEqual(summary["totals"]["generations"], 3)
 
                 filtered = client.cost_summary("a")

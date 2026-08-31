@@ -239,9 +239,11 @@ def queue_status(status_url, response_url, key):
         meta = {}
         res, rcode, rerr = supercmo_env._request("GET", response_url, headers=headers,
                                                  timeout=_STATUS_POLL_TIMEOUT, retries=1, meta=meta)
-        if res is None:                                      # result not fetched yet → retry
+        if res is None:
+            if _is_rejection(rcode):                         # job finished, vendor refused the result
+                return _result_rejected(rcode, rerr)
             return {"ok": False, "transient": True, "error": f"result fetch failed ({rcode})",
-                    "detail": (rerr or "")[:500]}
+                    "detail": (rerr or "")[:500]}         # not fetched yet / hiccup → retry
         out = {"ok": True, "done": True, "result": res}
         units = _billable_units(meta)   # the result fetch carries x-fal-billable-units
         if units is not None:
@@ -249,6 +251,43 @@ def queue_status(status_url, response_url, key):
         return out
     return {"ok": False, "terminal": True, "error": f"fal queue state: {state}",
             "detail": json.dumps(st)[:500]}
+
+
+def _is_rejection(code):
+    """A 4xx on the response fetch of a COMPLETED job is the vendor's final answer (e.g. 422 from a
+    content checker), not a slow result — except 408/429, which are worth another poll."""
+    return isinstance(code, int) and 400 <= code < 500 and code not in (408, 429)
+
+
+def _result_rejected(code, body):
+    """Shape a COMPLETED-but-rejected response into a terminal structured error. fal returns
+    {"detail": [{"type": "...", "msg": "..."}, ...]} (FastAPI style) or {"detail": "..."}; anything
+    else is passed through as `detail`. Terminal: the job is over — re-polling can never yield media,
+    and this is NOT a signal to resubmit the same handle."""
+    body = body or ""
+    etype, msg = None, None
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError):
+        parsed = None
+    detail = parsed.get("detail") if isinstance(parsed, dict) else None
+    if isinstance(detail, list) and detail and isinstance(detail[0], dict):
+        etype, msg = detail[0].get("type"), detail[0].get("msg")
+    elif isinstance(detail, str):
+        msg = detail
+    err = {"ok": False, "terminal": True, "status": code,
+           "error": etype or f"result rejected ({code})",
+           "message": msg or f"fal returned HTTP {code} for the completed job's result",
+           "detail": body[:500]}
+    if etype == "content_policy_violation":
+        err["hint"] = ("fal's content checker rejected this generation; the job is finished and no media "
+                       "will be produced. Do not poll this handle again. To retry, revise the prompt / "
+                       "reference media and submit a NEW request.")
+    else:
+        err["hint"] = ("the job completed but fal rejected its result; it will not succeed on re-poll. "
+                       "Check `message`/`detail`, adjust the request and submit a NEW request if "
+                       "appropriate.")
+    return err
 
 
 def _queue_run(endpoint, fal_input, key):
@@ -429,6 +468,24 @@ if __name__ == "__main__":
         _script[:] = [({"request_id": "r2"}, 200, None)]
         bad = queue_submit("x", {"prompt": "y"}, "k")
         assert not bad["ok"] and "missing status/response url" in bad["error"], bad
+        # COMPLETED but the response url answers 422 (content checker) → TERMINAL structured error,
+        # never `transient` (that would poll forever as "pending"), never `done`
+        _policy = json.dumps({"detail": [{"type": "content_policy_violation",
+                                          "msg": "Your request was flagged by a content checker."}]})
+        _script[:] = [({"status": "COMPLETED"}, 200, None), (None, 422, _policy)]
+        rej = video_status(sub["status_url"], sub["response_url"], "k")
+        assert not rej["ok"] and rej.get("terminal") is True and not rej.get("transient"), rej
+        assert rej["error"] == "content_policy_violation" and rej["status"] == 422, rej
+        assert "content checker" in rej["message"] and "NEW request" in rej["hint"], rej
+        # string-form detail + other 4xx → still terminal, message carried through
+        _script[:] = [({"status": "COMPLETED"}, 200, None), (None, 404, json.dumps({"detail": "Request not found"}))]
+        rej2 = queue_status(sub["status_url"], sub["response_url"], "k")
+        assert rej2.get("terminal") and rej2["message"] == "Request not found" and rej2["error"] == "result rejected (404)", rej2
+        # 429 / 5xx / no-status on the response fetch stay transient (result genuinely not ready)
+        for _code in (429, 500, None):
+            _script[:] = [({"status": "COMPLETED"}, 200, None), (None, _code, "later")]
+            tr = queue_status(sub["status_url"], sub["response_url"], "k")
+            assert tr.get("transient") is True and not tr.get("terminal"), (_code, tr)
     finally:
         supercmo_env._request = _real_request
 

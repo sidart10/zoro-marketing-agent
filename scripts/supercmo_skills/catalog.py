@@ -273,7 +273,28 @@ VIDEO_MODELS = {
 # null. NEVER guess a value here: fill an entry only from fal's published pricing or an observed
 # invoice, and record the source in "basis" (it ships as billing["price_basis"]).
 # Entry shape: {"usd_per_unit": <float>, "basis": "<where the price came from>"}.
-FAL_UNIT_USD = {}
+FAL_UNIT_USD = {
+    # 1 unit = 1 image at standard res (ledger: 2K gens log 1.0). fal model page 2026-08-31:
+    # "$0.15 per image", 4K charged double (as doubled units, so the per-unit price holds).
+    "nano-banana-pro": {"usd_per_unit": 0.15,
+                        "basis": "fal.ai/models/fal-ai/nano-banana-pro pricing, 2026-08-31"},
+    # 1 unit = 1K video tokens, tokens = h*w*s*24/1024. fal page 2026-08-31: $0.014/1K tokens at
+    # 480p-1080p (ledger cross-check: 6s 1080p logged 293.625 units = the formula exactly).
+    # CAVEAT: 4K bills at $0.008/1K tokens — this flat rate over-estimates 4K jobs.
+    "seedance-2.0": {"usd_per_unit": 0.014,
+                     "basis": "fal.ai seedance-2.0 pricing ($0.014/1K tokens, 480p-1080p), 2026-08-31"},
+    # 1 unit = 1 unit-second: audio-off 0.8/s, audio-on 1.2/s, voice-control 1.4/s at $0.14 each.
+    # Derived from fal page ($0.112/s audio-off) x ledger (4s audio-off clip logged 3.2 units):
+    # 3.2 x 0.14 = 4 x 0.112 = $0.448, exact.
+    "kling-3.0-pro": {"usd_per_unit": 0.14,
+                      "basis": "fal.ai kling v3 pro pricing x observed 3.2 units/4s audio-off clip, 2026-08-31"},
+    # Units ARE dollars: fal meters gpt-image-2 by its per-size/quality USD table (ledger: 6 medium
+    # slides logged 0.26 units ~= $0.043/image, matching the medium tier on the model page).
+    "gpt-image-2": {"usd_per_unit": 1.0,
+                    "basis": "fal.ai gpt-image-2 tier table; x-fal-billable-units observed to equal USD, 2026-08-31"},
+    # seedream-4.5: no ledger sample yet to confirm what its billable unit measures — add only
+    # after the first observed generation (unknown stays null, never guessed).
+}
 
 
 # audio: standalone audio deliverables. `type` selects the mode.

@@ -41,14 +41,20 @@ MEDIA_NAME_RE = re.compile(
     r"^(?:[a-z0-9][a-z0-9-]{0,47}_)?(?:image|video|audio)_[A-Za-z0-9.\-]+_[0-9a-f]{8}(?:_\d+)?\.[A-Za-z0-9]+$"
 )
 _SECRETISH = ("secret", "provider", "signed-url", "signed_url", ".env")
+# Finder/OS droppings — never contract violations, never worth a report line.
+_OS_NOISE = {".DS_Store"}
 
 
 def check(workspace: Path) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    allowed_root = set(WORKSPACE_DIRECTORIES) | {".gitignore", "workspace.yaml"}  # workspace.yaml = the schema header
+    # workspace.yaml = the schema header; WORKSPACE.md/STATUS.md = the front door + status board
+    allowed_root = set(WORKSPACE_DIRECTORIES) | {".gitignore", "workspace.yaml",
+                                                 "WORKSPACE.md", "STATUS.md"}
 
     for entry in sorted(workspace.iterdir()):
+        if entry.name in _OS_NOISE:
+            continue
         if entry.name not in allowed_root:
             errors.append(f"unexpected workspace-root entry: {entry.name} "
                           f"(allowed: {', '.join(sorted(allowed_root))})")
@@ -61,8 +67,8 @@ def check(workspace: Path) -> tuple[list[str], list[str]]:
                     warnings.append(f"media/generated/{entry.name}/ is not a project-slug bucket "
                                     "(tool workdir? move it to cache/scratch or rename to a slug)")
                 continue
-            if entry.name in {".keep", paths.COST_LEDGER_NAME}:  # contract files, not loose media
-                continue
+            if entry.name in {".keep", paths.COST_LEDGER_NAME} or entry.name in _OS_NOISE:
+                continue  # contract files / OS droppings, not loose media
             if not MEDIA_NAME_RE.match(entry.name):
                 warnings.append(f"inbox file doesn't match the naming grammar: media/generated/{entry.name}")
             else:
@@ -72,7 +78,7 @@ def check(workspace: Path) -> tuple[list[str], list[str]]:
     projects = workspace / "projects"
     if projects.is_dir():
         for entry in sorted(projects.iterdir()):
-            if entry.name in {".keep", ".active-project.json"}:
+            if entry.name in {".keep", ".active-project.json"} or entry.name in _OS_NOISE:
                 continue
             if entry.is_file():
                 errors.append(f"stray file at projects/ root: {entry.name}")

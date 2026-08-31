@@ -33,18 +33,26 @@ def _resolve(src, workdir, name):
     return path, None
 
 
+def _sar(value):
+    """Normalise ffprobe's sample_aspect_ratio to 'N:D'; unset / N/A / 0:1 all mean square pixels."""
+    sar = str(value or "").strip()
+    return sar if sar and sar not in ("N/A", "0:1", "0:0") else "1:1"
+
+
 def _res(path):
-    """(width, height) via ffprobe, or None."""
+    """(width, height, sar) via ffprobe, or None. `sar` is the sample aspect ratio as 'N:D' —
+    two clips with equal pixel size but different SAR display differently, so it is part of the
+    geometry that decides whether a stream-copy concat is safe."""
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         return None
     try:
         out = subprocess.run(
             [ffprobe, "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "json", path],
+             "-show_entries", "stream=width,height,sample_aspect_ratio", "-of", "json", path],
             capture_output=True, text=True, timeout=30)
         st = (json.loads(out.stdout or "{}").get("streams") or [{}])[0]
-        return (st["width"], st["height"]) if st.get("width") else None
+        return (st["width"], st["height"], _sar(st.get("sample_aspect_ratio"))) if st.get("width") else None
     except Exception:
         return None
 
@@ -143,16 +151,24 @@ def _concat_copy(ffmpeg, clips, workdir, out):
     return _run([ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", listfile, "-c", "copy", out])
 
 
+def _scale_chain(w, h):
+    """Per-clip filter that fits a clip into a `w`x`h` frame with square pixels and no stretch:
+    resample non-square pixels to square (scale=iw*sar:ih,setsar=1 — a no-op for SAR 1:1), fit
+    inside the target keeping the display aspect, letterbox/pillarbox the rest, and declare SAR 1:1
+    so the output's DAR is exactly w:h."""
+    return (f"scale=iw*sar:ih,setsar=1,scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1")
+
+
 def _concat_scaled(ffmpeg, clips, target, out):
-    """Concat clips letterboxed to `target` (w, h) — re-encode; handles mismatched sizes."""
-    w, h = target
+    """Concat clips letterboxed to `target` (w, h) — re-encode; handles mismatched sizes / SARs."""
+    w, h = target[:2]
     inputs = []
     for c in clips:
         inputs += ["-i", c]
     parts, labels = [], []
     for i in range(len(clips)):
-        parts.append(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                     f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1[v{i}]")
+        parts.append(f"[{i}:v]{_scale_chain(w, h)}[v{i}]")
         labels.append(f"[v{i}][{i}:a]")
     filt = ";".join(parts) + ";" + "".join(labels) + f"concat=n={len(clips)}:v=1:a=1[v][a]"
     return _run([ffmpeg, "-y", *inputs, "-filter_complex", filt, "-map", "[v]", "-map", "[a]",
@@ -205,7 +221,8 @@ def video_stitch(clips, music=None, subtitles=None, output=None, output_dir=None
 
         os.makedirs(out_dir, exist_ok=True)
 
-        # 1) Concatenate. Stream-copy when sizes match; scale-and-re-encode when they differ.
+        # 1) Concatenate. Stream-copy when geometry (size *and* SAR) matches; scale-and-re-encode
+        #    when it differs — a stream copy would keep the first clip's SAR for the whole output.
         sizes = [_res(p) for p in resolved]
         known = [s for s in sizes if s]
         cat = os.path.join(workdir, "cat.mp4")

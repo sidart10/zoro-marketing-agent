@@ -10,12 +10,12 @@ How the private `workspace/` stays organized, enforced by code. The directory *s
 | Folder | Contents | Rule |
 | --- | --- | --- |
 | `media/generated/` | **Inbox.** Raw generation output, auto-written. | Files land in a per-project bucket `media/generated/<slug>/`; files loose at the inbox root are a warning — file or archive them at session end. The hidden `.cost-ledger.jsonl` at the inbox root is expected (see "Cost ledger"). |
-| `projects/<slug>/` | **Curated deliverables.** One folder per campaign. | Slug is kebab-case (`riwayat-rida-suit-set`). Must have `README.md` (what shipped + build recipe); should have `FINAL_*` and `product-facts.md`. Suggested subfolders: `shots/`, `stills/`, `ads/`, `chain/`. |
+| `projects/<slug>/` | **Curated deliverables.** One folder per campaign. | Slug is kebab-case (`riwayat-rida-suit-set`). Must have `README.md` (what shipped + build recipe + status); should have `FINAL_*` and `product-facts.md`. **Real source photos (listing/WhatsApp refs) live in `refs/` — they are inputs the recipe depends on and never belong in scratch.** Versioned intermediate cuts belong in `work/`, not the project root. Other suggested subfolders: `shots/`, `stills/`, `ads/`, `chain/`. Before creating a slug, check for an existing near-match — resume it instead of creating a sibling. |
 | `archive/rejected/<slug>/` | Takes that failed frame review or were superseded. | Move, never delete. |
-| `cache/scratch/` | Session working files (downloads, cut workfiles, frame-review output). | Disposable; never a deliverable's only home. |
-| `library/` | Reusable brand assets that outlive one project (logos, fonts, voice picks). | — |
+| `cache/scratch/` | Session working files (cut workfiles, frame-review output under `frame_review/`). | Disposable; never a deliverable's — or a source photo's — only home. |
+| `library/` | Reusable brand assets that outlive one project. | Brand kits live at `library/brands/<brand>/BRAND.md` (voice, visual rules, standing decisions). |
 | `channels/` | Per-destination publishing state (captions, variants, post logs). | — |
-| `projections/generated/` | Per-channel exports derived from a project's FINAL. | — |
+| `projections/generated/` | Per-channel exports derived from a project's FINAL. | Drive deliveries stage under `projections/generated/drive/<Drive tree>` — the staged tree mirrors the remote layout exactly. |
 | `evaluations/`, `migrations/` | Evaluation evidence + its migration receipts (`evaluation_migration.py`). | Written by tooling only. |
 | `secrets/` | Fail-closed container for secret-shaped files. | Anything NOT secret-shaped in here is an error. Empty is the healthy state. |
 
@@ -60,13 +60,22 @@ Generation cost is part of the media contract:
 - **Reporting** — `workspace_project cost` (optionally with `slug`) sums the ledger per project;
   `client.cost_summary()` is the same programmatically.
 
+## Workspace-root docs
+
+Two hand-maintained files are allowed (and expected) at the workspace root alongside the directory
+set: `WORKSPACE.md` (the front door — session loop, folder map, delivery + operational notes) and
+`STATUS.md` (the per-campaign status board, updated at every session end).
+
 ## Lifecycle
 
-1. Session start → `workspace_project set <slug>` (creates `projects/<slug>/`, points the inbox).
+1. Session start → read `STATUS.md` → `workspace_project set <slug>` (creates `projects/<slug>/`,
+   points the inbox). Check for an existing slug first.
 2. Generate with `label`s → takes accumulate in `media/generated/<slug>/`.
-3. Frame review → losers to `archive/rejected/<slug>/`.
-4. Deliver → promote picks into `projects/<slug>/` (FINAL, shots/, stills/, README, product-facts).
-5. Session end → `python3 scripts/check_workspace_hygiene.py` is clean (or has only known warnings).
+3. Frame review (output in `cache/scratch/frame_review/`) → losers to `archive/rejected/<slug>/`.
+4. Deliver → promote picks into `projects/<slug>/` (FINAL, refs/, shots/, stills/, README,
+   product-facts); stage channel exports under `projections/generated/drive/`.
+5. Session end → update `STATUS.md`; `python3 scripts/check_workspace_hygiene.py` is clean (or has
+   only known warnings).
 
 ## How to verify
 

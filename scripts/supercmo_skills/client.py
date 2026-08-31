@@ -404,6 +404,15 @@ def cost_summary(project=None):
                 if isinstance(units, (int, float)):
                     g["billable_units"] += units
                 usd = entry.get("usd_estimate")
+                if not isinstance(usd, (int, float)):
+                    # Ledger lines written before a model's per-unit price was recorded carry
+                    # usd_estimate: null but keep their units — re-price them with the CURRENT
+                    # table so history doesn't stay unpriced forever. Still-unknown models stay
+                    # counted in `unpriced`.
+                    price = catalog.FAL_UNIT_USD.get(entry.get("model") or "")
+                    per_unit = (price or {}).get("usd_per_unit")
+                    if isinstance(units, (int, float)) and isinstance(per_unit, (int, float)):
+                        usd = units * per_unit
                 if isinstance(usd, (int, float)):
                     g["usd_estimate"] += usd
                 else:
@@ -1174,6 +1183,20 @@ if __name__ == "__main__":
         # a garbage handle is rejected, not polled
         bad = job_status({"nope": 1}, wait=False)
         assert not bad["ok"] and bad["error"] == "invalid job handle", bad
+
+        # COMPLETED on /status but the response url answers 422 content_policy_violation (veo-3.1
+        # content checker) → a structured terminal error, NOT the pending handle (regression: this
+        # used to read as transient and rejoin as "pending" forever). Both wait=False and the
+        # wait=True poll loop stop on it — and nothing is ever resubmitted (exactly 2 requests).
+        _policy = ({"detail": [{"type": "content_policy_violation",
+                                "msg": "Your request was flagged by a content checker."}]})
+        for _wait in (False, True):
+            _script[:] = [({"status": "COMPLETED"}, 200, None), (None, 422, json.dumps(_policy))]
+            rej = job_status(h, wait=_wait, deadline_s=5)
+            assert rej is not h and not rej["ok"] and rej.get("terminal") is True, (_wait, rej)
+            assert rej["error"] == "content_policy_violation" and rej["status"] == 422, rej
+            assert "content checker" in rej["message"] and rej.get("hint"), rej
+            assert not is_pending(rej) and not job_ok(rej) and not _script, (_wait, _script)
 
         # image is queued too: wait=False → image handle; rejoin once completed → images list
         _script[:] = [({"request_id": "i1", "status_url": "https://q/is", "response_url": "https://q/ir"}, 200, None)]
