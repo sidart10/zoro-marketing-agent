@@ -102,6 +102,10 @@ Add to this list when a review turns up a repeatable pattern; it steers the *fix
 - **Veo 3.1: unprompted flourishes on long clips.** 8 s clips invite an undirected twirl, wave, or
   drape change mid-clip. Fix: shorter clips (4-6 s), one action per clip, and state what stays
   still.
+- **Kling 3.0 i2v: reframes and warms.** Even with "locked tripod framing", the first frame comes
+  back recomposed slightly wider than the supplied start frame, and the whole clip's grade runs
+  warmer/more amber than the source still. Neither is a fail on a still-life — but leave margin in
+  the start-frame crop, and expect a small grade jump against stills cut from the same image.
 - **Any model: an undirected accessory is a coin flip.** A dupatta, bag, or scarf not pinned by the
   prompt gets re-invented (hand swaps, re-grips, new drapes). Pin every accessory's position and
   hand explicitly in every shot's prompt.

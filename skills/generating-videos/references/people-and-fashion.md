@@ -1,7 +1,27 @@
-# Field notes — people, fashion, and real-photo sources (learned 2026-08-19)
+# Field notes — people, fashion, and real-photo sources (learned 2026-08-19, updated 2026-09-01)
 
 Hard-won routing for clips that show a person wearing a product. Read when the brief is on-model
 fashion, a brand's real photos exist, or the user says an earlier result "looks AI".
+
+## One visual world per reel (2026-09-01, rejected work)
+
+A reel's shots must share one look, one grade, one level of production polish — "shot on the same
+day by the same photographer". A cut that mixed polished AI-restaged scenes with Ken Burns moves on
+the raw (graded) source photo was rejected as "mediocre to bad": the world-clash reads cheap and
+buries the point of the restaged scenes. If the hero shot is a restaged scene, every shot is a
+restaged scene — the unused alternates from the still batch are free b-roll starts. Raw/authentic
+footage (maker's hands, process video) is its own reel, never filler inside an editorial one.
+
+## Product still-life cinemagraphs (proven recipe, 2026-09-01)
+
+For product reels with no people: bring a **restaged product still** to life with locked-camera i2v
+— Kling 3.0 Pro, 5 s, audio off (~$0.56/clip), start frame = a 9:16 crop of the approved still.
+Prompt shape: name the product and state it "stays completely motionless and unchanged for the
+entire shot", then give the *environment* the motion (steam curling from a cup, a light band
+sliding, leaf shadows trembling, dust motes, a moving glint on hardware) plus "locked tripod
+framing with an almost imperceptible slow push-in". Environment moves, product doesn't — passed
+frame review three-for-three. Kling recomposes the start frame slightly wider and warms the grade
+(see frame-review.md), so frame the crop with margin.
 
 ## What reads as AI, and what doesn't
 
@@ -44,5 +64,6 @@ A 1.03× `atempo` on the VO is inaudible and buys ~0.5 s.
   rendering transparent PNGs (Pillow via `uv run --with pillow`) and `overlay=...:enable='between(t,a,b)'`.
   Futura lacks `₹` and `→` — use Helvetica Neue (has `₹`) or a middot.
 - Normalise every input to the same fps (24), 48 kHz stereo AAC, SAR 1 before stitching.
-- `job_status` once kept reporting `pending` for a job fal had already rejected (fix in progress) —
-  if a clip sits pending unusually long, curl the `status_url` directly.
+- `job_status` now surfaces a terminal structured error (with a hint) when fal rejects a completed
+  job's result — a handle that stays `pending` means the job is genuinely still rendering; keep
+  rejoining it, never resubmit.

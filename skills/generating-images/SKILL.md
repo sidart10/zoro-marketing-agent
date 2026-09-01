@@ -57,6 +57,7 @@ row matches, read that recipe and follow its sections and example. If none match
 | Poster / ad / banner / social graphic | `references/format-poster.md`    |
 | Portrait / avatar / influencer        | `references/format-portrait.md`  |
 | Cinematic still                       | `references/format-cinematic.md` |
+| Product restaged into a styled scene (e-commerce / lifestyle, from a real product photo) | `references/format-product-restage.md` |
 
 ### Step 3: Get any missing inputs
 
@@ -146,4 +147,5 @@ image URL(s) and local file path(s) with the user.
 
 **Format recipes** — read only if the deliverable matches:
 
-- `references/format-poster.md`, `references/format-portrait.md`, `references/format-cinematic.md`.
+- `references/format-poster.md`, `references/format-portrait.md`, `references/format-cinematic.md`,
+  `references/format-product-restage.md`.
